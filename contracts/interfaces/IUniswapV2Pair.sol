@@ -49,4 +49,8 @@ interface IUniswapV2Pair {
     function sync() external;
 
     function initialize(address, address) external;
+
+    event OrderBookCreated(address, address, address, uint, uint);
+    function orderBook() external view returns (address);
+    function createOrderBook(address quoteToken, uint priceStep, uint minAmount) external;
 }

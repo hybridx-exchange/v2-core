@@ -4,6 +4,8 @@ import './interfaces/IUniswapV2Pair.sol';
 import './UniswapV2ERC20.sol';
 import './libraries/Math.sol';
 import './libraries/UQ112x112.sol';
+import './libraries/HybridLibrary.sol';
+import './libraries/UniswapV2Library.sol';
 import './interfaces/IERC20.sol';
 import './interfaces/IUniswapV2Factory.sol';
 import './interfaces/IUniswapV2Callee.sol';
@@ -18,6 +20,7 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
     address public factory;
     address public token0;
     address public token1;
+    address public orderBook;
 
     uint112 private reserve0;           // uses single storage slot, accessible via getReserves
     uint112 private reserve1;           // uses single storage slot, accessible via getReserves
@@ -118,7 +121,7 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         uint _totalSupply = totalSupply; // gas savings, must be defined here since totalSupply can update in _mintFee
         if (_totalSupply == 0) {
             liquidity = Math.sqrt(amount0.mul(amount1)).sub(MINIMUM_LIQUIDITY);
-           _mint(address(0), MINIMUM_LIQUIDITY); // permanently lock the first MINIMUM_LIQUIDITY tokens
+            _mint(address(0), MINIMUM_LIQUIDITY); // permanently lock the first MINIMUM_LIQUIDITY tokens
         } else {
             liquidity = Math.min(amount0.mul(_totalSupply) / _reserve0, amount1.mul(_totalSupply) / _reserve1);
         }
@@ -156,7 +159,7 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
     }
 
     // this low-level function should be called from a contract which performs important safety checks
-    function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external lock {
+    function swapOriginal(uint amount0Out, uint amount1Out, address to, bytes calldata data) external {
         require(amount0Out > 0 || amount1Out > 0, 'UniswapV2: INSUFFICIENT_OUTPUT_AMOUNT');
         (uint112 _reserve0, uint112 _reserve1,) = getReserves(); // gas savings
         require(amount0Out < _reserve0 && amount1Out < _reserve1, 'UniswapV2: INSUFFICIENT_LIQUIDITY');
@@ -164,22 +167,119 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         uint balance0;
         uint balance1;
         { // scope for _token{0,1}, avoids stack too deep errors
-        address _token0 = token0;
-        address _token1 = token1;
-        require(to != _token0 && to != _token1, 'UniswapV2: INVALID_TO');
-        if (amount0Out > 0) _safeTransfer(_token0, to, amount0Out); // optimistically transfer tokens
-        if (amount1Out > 0) _safeTransfer(_token1, to, amount1Out); // optimistically transfer tokens
-        if (data.length > 0) IUniswapV2Callee(to).uniswapV2Call(msg.sender, amount0Out, amount1Out, data);
-        balance0 = IERC20(_token0).balanceOf(address(this));
-        balance1 = IERC20(_token1).balanceOf(address(this));
+            address _token0 = token0;
+            address _token1 = token1;
+            require(to != _token0 && to != _token1, 'UniswapV2: INVALID_TO');
+            if (amount0Out > 0) _safeTransfer(_token0, to, amount0Out); // optimistically transfer tokens
+            if (amount1Out > 0) _safeTransfer(_token1, to, amount1Out); // optimistically transfer tokens
+            if (data.length > 0) IUniswapV2Callee(to).uniswapV2Call(msg.sender, amount0Out, amount1Out, data);
+            balance0 = IERC20(_token0).balanceOf(address(this));
+            balance1 = IERC20(_token1).balanceOf(address(this));
         }
         uint amount0In = balance0 > _reserve0 - amount0Out ? balance0 - (_reserve0 - amount0Out) : 0;
         uint amount1In = balance1 > _reserve1 - amount1Out ? balance1 - (_reserve1 - amount1Out) : 0;
         require(amount0In > 0 || amount1In > 0, 'UniswapV2: INSUFFICIENT_INPUT_AMOUNT');
         { // scope for reserve{0,1}Adjusted, avoids stack too deep errors
-        uint balance0Adjusted = balance0.mul(1000).sub(amount0In.mul(3));
-        uint balance1Adjusted = balance1.mul(1000).sub(amount1In.mul(3));
-        require(balance0Adjusted.mul(balance1Adjusted) >= uint(_reserve0).mul(_reserve1).mul(1000**2), 'UniswapV2: K');
+            uint balance0Adjusted = balance0.mul(1000).sub(amount0In.mul(3));
+            uint balance1Adjusted = balance1.mul(1000).sub(amount1In.mul(3));
+            require(balance0Adjusted.mul(balance1Adjusted) >= uint(_reserve0).mul(_reserve1).mul(1000**2), 'UniswapV2: K');
+        }
+
+        _update(balance0, balance1, _reserve0, _reserve1);
+        emit Swap(msg.sender, amount0In, amount1In, amount0Out, amount1Out, to);
+    }
+
+    // this low-level function should be called from a contract which performs important safety checks
+    // 输入输出已经考虑了挂单的情况
+    function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external lock {
+        require(amount0Out > 0 || amount1Out > 0, 'UniswapV2: INSUFFICIENT_OUTPUT_AMOUNT');
+        (uint112 _reserve0, uint112 _reserve1,) = getReserves(); // gas savings
+
+        address _token0 = token0;
+        address _token1 = token1;
+        uint balance0 = IERC20(_token0).balanceOf(address(this));
+        uint balance1 = IERC20(_token1).balanceOf(address(this));
+
+        uint amount0In = balance0 > _reserve0 - amount0Out ? balance0 - (_reserve0 - amount0Out) : 0; // 此处进入的资金会用于amm + 订单两部分
+        uint amount1In = balance1 > _reserve1 - amount1Out ? balance1 - (_reserve1 - amount1Out) : 0;
+        require(amount0In > 0 || amount1In > 0, 'UniswapV2: INSUFFICIENT_INPUT_AMOUNT');
+
+        address tokenIn = amount0In != 0 ? _token0 : _token1;
+        address tokenOut = tokenIn == _token0 ? _token1 : _token0;
+
+        uint direction = HybridLibrary.getTradeDirection(tokenIn, tokenOut); //direction for tokenA swap to tokenB
+        uint decimal = HybridLibrary.getPriceDecimal(direction, tokenIn, tokenOut); //use quote token decimal as price decimal
+        (uint[] memory priceArray, uint[] memory amountArray) = HybridLibrary.getMarketBook(direction);
+        uint reserveIn = tokenIn == _token0 ? _reserve0 : _reserve1;
+        uint reserveOut = tokenIn == _token0 ? _reserve1 : _reserve0;
+
+        uint amountLeft = amount0In != 0 ? amount0In : amount1In;
+        uint amountOut;
+        uint amountUsed;
+        uint amountAmmIn;
+        uint amountAmmOut;
+        for (uint i = 0; i < priceArray.length; i++) {
+            //先计算pair从当前价格到price[j]消耗amountIn的数量
+            (amountUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(direction, reserveIn, reserveOut, priceArray[i], decimal);
+            //再计算本次移动价格获得的amountOut
+            uint amountOutTmp = amountUsed > amountLeft ? UniswapV2Library.getAmountOut(amountLeft, reserveIn,
+                reserveOut) : UniswapV2Library.getAmountOut(amountUsed, reserveIn, reserveOut);
+            amountOut += amountOutTmp;
+            //再计算amm中实际会消耗的amountIn的数量
+            amountAmmIn +=  amountUsed > amountLeft ? amountLeft : amountUsed;
+            //再计算amm中实际会消耗的amountOut的数量
+            amountAmmOut += amountOutTmp;
+            //再计算还剩下的amountIn
+            amountLeft = amountUsed < amountLeft ? amountLeft - amountUsed : 0;
+            if (amountLeft == 0) {
+                break;
+            }
+
+            //消耗掉一个价格的挂单并返回实际需要的amountIn数量 -- 将amountOut（包含手续费)由orderbook合约先转入入pair合约，便于flash swap使用，返回需要转账的地址和数量
+            (uint amountInForTake, uint amountOutWithFee, address[] memory accounts, uint[] memory amounts) = HybridLibrary.getAmountAndTakePrice
+                (direction, amountLeft, priceArray[i], decimal, amountArray[i]);
+            //将amountInForTake转移给消费订单对应的账号
+            for (uint j = 0; j < accounts.length; j++) {
+                _safeTransfer(tokenIn, accounts[j], amounts[j]);
+            }
+
+            amountOut += amountOutWithFee;
+            if (amountLeft >= amountInForTake) { //amountIn消耗完了
+                break;
+            }
+        }
+
+        //如果所有订单都消耗完，或者没有订单则需要从amm中继续swap
+        //先计算pair从当前价格到price[j]消耗amountIn的数量
+        (amountUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(direction, reserveIn, reserveOut, price, decimal);
+        //再计算本次移动价格获得的amountOut
+        uint amountOutTmp = amountUsed > amountLeft ? UniswapV2Library.getAmountOut(amountLeft, reserveIn, reserveOut) :
+            UniswapV2Library.getAmountOut(amountUsed, reserveIn, reserveOut);
+        amountOut += amountOutTmp;
+        //再计算amm中实际会消耗的amountIn的数量
+        amountAmmIn +=  amountUsed > amountLeft ? amountLeft : amountUsed;
+        //再计算amm中实际会消耗的amountOut的数量
+        amountAmmOut += amountOutTmp;
+
+        {
+            require(to != _token0 && to != _token1, 'UniswapV2: INVALID_TO');
+            if (amount0Out > 0) _safeTransfer(_token0, to, amount0Out); // optimistically transfer tokens
+            if (amount1Out > 0) _safeTransfer(_token1, to, amount1Out); // optimistically transfer tokens
+            if (data.length > 0) IUniswapV2Callee(to).uniswapV2Call(msg.sender, amount0Out, amount1Out, data);
+        }
+
+        { // scope for reserve{0,1}Adjusted, avoids stack too deep errors
+            balance0 = IERC20(_token0).balanceOf(address(this));//前面已经去除订单的金额，此处更新后只有amm相关的资金了
+            balance1 = IERC20(_token1).balanceOf(address(this));
+            amount0Out = tokenIn == _token0 ? 0 : amountAmmOut;//此处只有amm相关金额
+            amount1Out = tokenIn == _token0 ? amountAmmOut : 0;
+            require(amount0Out < _reserve0 && amount1Out < _reserve1, 'UniswapV2: INSUFFICIENT_LIQUIDITY');
+            amount0In = balance0 > _reserve0 - amount0Out ? balance0 - (_reserve0 - amount0Out) : 0; // 此处的资金只用于amm，暂时先复用uniswap v2代码
+            amount1In = balance1 > _reserve1 - amount1Out ? balance1 - (_reserve1 - amount1Out) : 0;
+            require(amount0In == amountAmmIn || amount1In == amountAmmIn, 'UniswapV2: Miscalculate AmountIn');
+            uint balance0Adjusted = balance0.mul(1000).sub(amount0In.mul(3));
+            uint balance1Adjusted = balance1.mul(1000).sub(amount1In.mul(3));
+            require(balance0Adjusted.mul(balance1Adjusted) >= uint(_reserve0).mul(_reserve1).mul(1000**2), 'UniswapV2: K');
         }
 
         _update(balance0, balance1, _reserve0, _reserve1);
@@ -197,5 +297,19 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
     // force reserves to match balances
     function sync() external lock {
         _update(IERC20(token0).balanceOf(address(this)), IERC20(token1).balanceOf(address(this)), reserve0, reserve1);
+    }
+
+    //create order book
+    function createOrderBook(address quoteToken, uint priceStep, uint minAmount) external lock {
+        require(orderBook == address(0), 'UniswapV2 OrderBook : ORDER_BOOK_EXISTS');
+        require(quoteToken == token0 || quoteToken == token1, 'UniswapV2 OrderBook : INVALID_QUOTE_TOKEN');
+        bytes memory bytecode = type(OrderBook).creationCode;
+        bytes32 salt = keccak256(abi.encodePacked(token1, token0));
+        assembly {
+            orderBook := create2(0, add(bytecode, 32), mload(bytecode), salt)
+        }
+        address baseToken = quoteToken == token0 ? token1 : token0;
+        IOrderBook(orderBook).initialize(baseToken, quoteToken, priceStep, minAmount);
+        emit OrderBookCreated(orderBook, baseToken, quoteToken, priceStep, minAmount);
     }
 }
