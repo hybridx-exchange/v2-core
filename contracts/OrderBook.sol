@@ -120,7 +120,7 @@ contract PriceList {
         }
     }
 
-    function addPrice(uint8 direction, uint price) external {//外部调用保证没有重复
+    function addPrice(uint8 direction, uint price) internal {//外部调用保证没有重复
         uint priceArrayLength = limitOrderPriceArrayLength[direction];
         if (priceArrayLength == 0) {//第一个元素
             limitOrderPriceDataMap[direction][0] = price;
@@ -135,7 +135,7 @@ contract PriceList {
         limitOrderPriceArrayLength[direction]++;
     }
 
-    function delPrice(uint8 direction, uint price) external {//外部调用保证元素存在
+    function delPrice(uint8 direction, uint price) internal {//外部调用保证元素存在
         (uint preIndex, uint nextIndex) = priceLocation(direction, price);
         require(price == nextIndex, 'Invalid price');
         limitOrderPriceDataMap[direction][preIndex] = limitOrderPriceDataMap[direction][nextIndex];
@@ -273,9 +273,9 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
 
         //删除用户订单
         uint[] userOrders = userOrdersMap[order.orderOwner];
-        require(userOrders.length > order.orderIndex);
+        require(userOrders.length > order.orderIndex, 'invalid orderIndex');
         //直接用最后一个元素覆盖当前元素
-        if (order.orderIndex !=  userOrders.length - 1) {
+        if (order.orderIndex != userOrders.length - 1) {
             userOrders[orderIndex] = userOrders[userOrders.length - 1];
         }
 
@@ -291,18 +291,26 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
         }
     }
 
-    function marketOrder(uint8 direction) external view returns (uint[] memory prices, uint[] memory amounts){
-
+    //订单薄，不关注订单具体信息，只用于查询
+    function marketBook(uint8 direction, uint32 maxSize) external returns (uint[] memory prices, uint[] memory amounts){
+        uint curPrice = nextPrice(direction, 0);
+        uint index = 0;
+        while(curPrice != 0 && index < maxSize){
+            prices[index] = curPrice;
+            amounts[index] = listAgg(direction, curPrice);
+            curPrice = nextPrice(direction, curPrice);
+            index++;
+        }
     }
 
-    function marketRangeOrder(uint8 direction, uint price) external view returns (uint[] memory prices, uint[] memory
-        amounts){
-
+    function nextOrder(uint8 direction, uint curPrice) external returns (uint nextPrice, uint[] memory amounts){
+        nextPrice = nextPrice(direction, curPrice);
+        amounts = list(direction, nextPrice);
     }
 
-    //订单薄，不关注订单具体信息
-    function marketBook(uint8 direction) external returns (uint[] memory prices, uint[] memory amounts){
-
+    function nextBook(uint8 direction, uint curPrice) external returns (uint nextPrice, uint amount){
+        nextPrice = nextPrice(direction, curPrice);
+        amount = listAgg(direction, nextPrice);
     }
 
     //使用特定数量的token将价格向上移动到特定值--具体执行放到UniswapV2Pair里面, 在这里需要考虑当前价格到目标价格之间的挂单，amm中的分段只用于计算，实际交易整体完成，不分段
