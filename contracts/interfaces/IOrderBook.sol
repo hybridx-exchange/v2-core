@@ -6,7 +6,7 @@ interface IOrderBook {
     function createSellLimitOrder(address user, uint amountOffer, uint price, address to) external returns (uint);
     function cancelLimitOrder(uint orderId) external;
     function tradeDirection(address tokenA, address tokenB) external view returns (uint8);
-    function priceDecimal(address tokenA, address tokenB) external view returns (uint8);
+    function priceDecimal() external view returns (uint8);
     function marketOrder(uint8 direction) external view returns (uint[] memory prices, uint[] memory amounts);
     function marketRangeOrder(uint8 direction, uint price) external view returns (uint[] memory prices, uint[] memory
         amounts);

@@ -160,6 +160,8 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
         address to;
     }
 
+    bytes4 private constant SELECTOR = bytes4(keccak256(bytes('transfer(address,uint256)')));
+
     //名称
     string public constant name = 'Uniswap V2 OrderBook';
 
@@ -168,6 +170,8 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
 
     //价格间隔参数-保证价格间隔的设置在一个合理的范围内
     uint priceStep; //priceStep 和 minAmount和修改可以考虑在一定时间内由合约创建者负责修改，一定时间后将维护权自动转交给投票合约及管理员
+    //价格小数点位数
+    uint priceDecimal;
     //最小数量
     uint minAmount;
     //价格的位数与quoteToken保持一致
@@ -196,6 +200,7 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
         baseToken = _baseToken;
         quoteToken = _quoteToken;
         priceStep = _priceStep;
+        priceDecimal = IERC20(_quoteToken).decimals();
         minAmount = _minAmount;
         TransferHelper.safeApprove(baseToken, pair, uint(-1));
         TransferHelper.safeApprove(quoteToken, pair, uint(-1));
@@ -205,6 +210,11 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
     function approveAll() external {
         TransferHelper.safeApprove(baseToken, pair, uint(-1));
         TransferHelper.safeApprove(quoteToken, pair, uint(-1));
+    }
+
+    function _safeTransfer(address token, address to, uint value) private {
+        (bool success, bytes memory data) = token.call(abi.encodeWithSelector(SELECTOR, to, value));
+        require(success && (data.length == 0 || abi.decode(data, (bool))), 'UniswapV2: TRANSFER_FAILED');
     }
 
     uint private unlocked = 1;
@@ -231,10 +241,6 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
 
     function tradeDirection(address tokenA, address tokenB) external returns (uint8 direction) {
         direction = quoteToken == tokenA ? 1 : 2;
-    }
-
-    function priceDecimal(address tokenA, address tokenB) external returns (uint8 decimal) {
-        decimal = quoteToken == tokenA ? IERC20(tokenA).decimals() : IERC20(tokenB).decimals();
     }
 
     //创建order对象
@@ -303,68 +309,176 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
         }
     }
 
+    //用于遍历所有订单
     function nextOrder(uint8 direction, uint curPrice) external returns (uint nextPrice, uint[] memory amounts){
         nextPrice = nextPrice(direction, curPrice);
         amounts = list(direction, nextPrice);
     }
 
+    //用于遍历所有订单薄
     function nextBook(uint8 direction, uint curPrice) external returns (uint nextPrice, uint amount){
         nextPrice = nextPrice(direction, curPrice);
         amount = listAgg(direction, nextPrice);
     }
 
+    function getAmountAndTakePrice(uint direction, uint amountInOffer, uint price, uint decimal, uint amountOutOffer)
+        external returns (uint amountIn, uint amountOutWithFee, address[] accounts, uint[] amounts) {
+        if (direction == 1) { //buy (quoteToken == tokenA)  用tokenA（usdc)换tokenB(btc)
+            uint amountOut = HybridLibrary.getAmountOutWithPrice(amountInOffer, price, decimal);
+            if (amountOut.mul(1000) <= amountOutOffer.mul(997)) { //只吃掉一部分: amountOut > amountOffer * (1-0.3%)
+                (amountIn, amountOutWithFee) = (amountInOffer, amountOut);
+            }
+            else {
+                amountOutWithFee = amountOutOffer.mul(997) / 1000;
+                amountIn = HybridLibrary.getAmountInWithPrice(amountOutWithFee, price, decimal);
+            }
+            (accounts, amounts) = takeSellLimitOrder(amountOutWithFee, price);
+        }
+        else if (direction == 2) { //sell (quoteToken == tokenB) 用tokenA(btc)换tokenB(usdc)
+            uint amountOut = HybridLibrary.getAmountOutWithPrice(amountInOffer, price, decimal);
+            if (amountOut.mul(1000) <= amountOutOffer.mul(997)) { //只吃掉一部分: amountOut > amountOffer * (1-0.3%)
+                (amountIn, amountOutWithFee) = (amountInOffer, amountOut);
+            }
+            else {
+                amountOutWithFee = amountOutOffer.mul(997) / 1000;
+                amountIn = HybridLibrary.getAmountInWithPrice(amountOutWithFee, price, decimal);
+            }
+            (accounts, amounts) = takeBuyLimitOrder(amountIn, price);
+        }
+    }
+
     //使用特定数量的token将价格向上移动到特定值--具体执行放到UniswapV2Pair里面, 在这里需要考虑当前价格到目标价格之间的挂单，amm中的分段只用于计算，实际交易整体完成，不分段
     function _movePriceUp(uint amountOffer, uint _targetPrice) private returns (uint quoteAmountIn) {
-        //获取价格范围内的反方向挂单
-        (uint[] priceArray, uint[] amountArray) = marketRangeOrder(2, _targetPrice);
         (uint reserveOut, uint reserveIn) = getReserves();
         uint amountLeft = amountOffer;
-        uint amountUsed;
+        uint amountInUsed;
+        uint amountOutUsed;
         uint amountAmmIn;
         uint amountAmmOut;
+        uint direction = 2; //获取反方向的挂单
 
-        //看看是否需要吃单
-        for (uint i=0; i<priceArray.length; i++){
-            //先计算pair从当前价格到price[j]消耗amountIn的数量
-            (amountUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(direction, reserveIn, reserveOut, priceArray[i], decimal);
-            //再计算本次移动价格获得的amountOut
-            amountAmmOut += amountUsed > amountLeft ? HybridLibrary.getAmountOut(amountLeft, reserveIn, reserveOut) : HybridLibrary.getAmountOut(amountUsed, reserveIn, reserveOut);
+        (uint price, uint amount) = nextBook(direction, 0);
+        while(price <= _targetPrice) {
+            //先计算pair从当前价格到price消耗amountIn的数量
+            (amountInUsed, amountOutUsd, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(
+                direction,
+                reserveIn,
+                reserveOut,
+                price,
+                priceDecimal);
             //再计算amm中实际会消耗的amountIn的数量
-            amountAmmIn += amountUsed > amountLeft ? amountLeft : amountUsed;
+            amountAmmIn += amountInUsed > amountLeft ? amountLeft : amountInUsed;
+            //再计算本次移动价格获得的amountOut
+            amountAmmOut += amountInUsed > amountLeft ? UniswapV2Library.getAmountOut(amountLeft, reserveIn, reserveOut)
+            : amountOutUsed;
             //再计算还剩下的amountIn
-            amountLeft = amountUsed < amountLeft ? amountLeft - amountUsed : 0;
+            amountLeft = amountInUsed < amountLeft ? amountLeft - amountInUsed : 0;
             if (amountLeft == 0) {
                 break;
             }
 
-            //消耗掉一个价格的挂单并返回实际需要的amountIn数量 -- 将amountOut（包含手续费)由orderbook合约先转入入pair合约，便于flash swap使用，返回需要转账的地址和数量
-            (uint amountInForTake, uint amountOutWithFee, address[] accounts, uint[] amounts) = HybridLibrary.getAmountAndTakePrice
-            (direction, amountLeft, priceArray[i], decimal, amountArray[i]);
+            //消耗掉一个价格的挂单并返回实际需要的amountIn数量
+            (uint amountInForTake, uint amountOutWithFee, address[] accounts, uint[] amounts) = getAmountAndTakePrice
+                (direction, amountLeft, price, priceDecimal, amount);
+            //给对应数量的tokenIn发送给对应的账号
+            for(uint i=0; i<accounts.length; i++) {
+                _safeTransfer(quoteToken, accounts[i], amounts[i]);
+            }
 
-            if (amountLeft >= amountInForTake) { //amountIn消耗完了
+            amountLeft = amountInForTake < amountLeft ? amountLeft - amountInForTake : 0;
+            if (amountLeft == 0) { //amountIn消耗完了
                 break;
             }
+
+            (nextPrice, amount) = nextBook(direction, nextPrice);
         }
 
-        //处理挂单之外的价格范围
-        (amountUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(direction, reserveIn, reserveOut, _targetPrice, decimal);
-        //再计算本次移动价格获得的amountOut
-        amountAmmOut += amountUsed > amountLeft ? HybridLibrary.getAmountOut(amountLeft, reserveIn, reserveOut) : HybridLibrary.getAmountOut(amountUsed, reserveIn, reserveOut);
-        //再计算amm中实际会消耗的amountIn的数量
-        amountAmmIn += amountUsed > amountLeft ? amountLeft : amountUsed;
+        if (nextPrice < _targetPrice && amountLeft > 0){//处理挂单之外的价格范围
+            (amountInUsed, amountOutUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(direction,
+                reserveIn, reserveOut, _targetPrice, decimal);
+            //再计算amm中实际会消耗的amountIn的数量
+            amountAmmIn += amountInUsed > amountLeft ? amountLeft : amountInUsed;
+            //再计算本次移动价格获得的amountOut
+            amountAmmOut += amountInUsed > amountLeft ? HybridLibrary.getAmountOut(amountLeft, reserveIn, reserveOut)
+            : amountOutUsed;
+        }
 
         //向pair转账
         require(IERC20(quoteToken).allowance(address(this), pair) > amountAmmIn, 'UniswapV2 OrderBook: transfer amount exceeds spender allowance');
         _safeTransfer(quoteToken, pair, amountAmmIn);
 
-        //将当前价格移动到目标价格并最多消耗amountLeft
-        (uint amount0Out, uint amount1Out) = baseToken == IUniswapV2Pair(pair).token0() ? (uint(0), amountOut) : (amountOut, uint(0));
-        IUniswapV2Pair(pair).swapOriginal(amount0Out, amount1Out, to, new bytes(0));
+        {//将当前价格移动到目标价格并最多消耗amountLeft
+            (uint amount0Out, uint amount1Out) = baseToken == IUniswapV2Pair(pair).token0() ? (uint(0), amountAmmOut) : (amountAmmOut, uint(0));
+            IUniswapV2Pair(pair).swapOriginal(amount0Out, amount1Out, to, new bytes(0));
+        }
     }
 
     //使用特定数量的token将价格向上移动到特定值--具体执行放到UniswapV2Pair里面, 在这里需要考虑当前价格到目标价格之间的挂单
-    function _movePriceDown(uint _targetPrice) private returns (uint baseAmountIn) {
+    function _movePriceDown(uint amountOffer, uint _targetPrice) private returns (uint baseAmountIn) {
+        (uint reserveIn, uint reserveOut) = getReserves();
+        uint amountLeft = amountOffer;
+        uint amountInUsed;
+        uint amountOutUsed;
+        uint amountAmmIn;
+        uint amountAmmOut;
 
+        uint direction = 1; //获取反方向的挂单
+        (uint price, uint amount) = nextBook(direction, 0);
+        while(price <= _targetPrice) {
+            //先计算pair从当前价格到price消耗amountIn的数量
+            (amountInUsed, amountOutUsd, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(
+                direction,
+                reserveIn,
+                reserveOut,
+                price,
+                priceDecimal);
+            //再计算本次移动价格获得的amountOut
+            amountAmmOut += amountInUsed > amountLeft ? UniswapV2Library.getAmountOut(amountLeft, reserveIn, reserveOut)
+            : amountOutUsed;
+            //再计算amm中实际会消耗的amountIn的数量
+            amountAmmIn += amountInUsed > amountLeft ? amountLeft : amountInUsed;
+            //再计算还剩下的amountIn
+            amountLeft = amountInUsed < amountLeft ? amountLeft - amountInUsed : 0;
+            if (amountLeft == 0) {
+                break;
+            }
+
+            //消耗掉一个价格的挂单并返回实际需要的amountIn数量
+            (uint amountInForTake, uint amountOutWithFee, address[] accounts, uint[] amounts) = getAmountAndTakePrice
+            (direction, amountLeft, price, priceDecimal, amount);
+            //给对应数量的tokenIn发送给对应的账号
+            for(uint i=0; i<accounts.length; i++) {
+                _safeTransfer(baseToken, accounts[i], amounts[i]);
+            }
+
+            amountLeft = amountInForTake < amountLeft ? amountLeft - amountInForTake : 0;
+            if (amountLeft == 0) { //amountIn消耗完了
+                break;
+            }
+
+            (nextPrice, amount) = nextBook(direction, nextPrice);
+        }
+
+        if (nextPrice < _targetPrice && amountLeft > 0){//处理挂单之外的价格范围
+            (amountInUsed, amountOutUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(direction,
+                reserveIn, reserveOut, _targetPrice, decimal);
+            //再计算amm中实际会消耗的amountIn的数量
+            amountAmmIn += amountInUsed > amountLeft ? amountLeft : amountInUsed;
+            //再计算本次移动价格获得的amountOut
+            amountAmmOut += amountInUsed > amountLeft ? HybridLibrary.getAmountOut(amountLeft, reserveIn, reserveOut)
+            : amountOutUsed;
+        }
+
+        //向pair转账
+        require(IERC20(baseToken).allowance(address(this), pair) > amountAmmIn, 'UniswapV2 OrderBook: transfer amount
+    exceeds spender allowance');
+        _safeTransfer(baseToken, pair, amountAmmIn);
+
+        {//将当前价格移动到目标价格并最多消耗amountLeft
+            (uint amount0Out, uint amount1Out) = quoteToken == IUniswapV2Pair(pair).token0() ? (uint(0), amountAmmOut) :
+                (amountAmmOut, uint(0));
+            IUniswapV2Pair(pair).swapOriginal(amount0Out, amount1Out, to, new bytes(0));
+        }
     }
 
     //创建限价买订单

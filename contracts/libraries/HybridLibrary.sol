@@ -35,9 +35,9 @@ library HybridLibrary {
         }
     }
 
-    function getPriceDecimal(address orderBook, address tokenA, address tokenB) internal view returns (uint decimal) {
+    function getPriceDecimal(address orderBook) internal view returns (uint decimal) {
         if (orderBook != address(0)) {
-            decimal = IOrderBook(orderBook).priceDecimal(tokenA, tokenB);
+            decimal = IOrderBook(orderBook).priceDecimal();
         }
     }
 
@@ -50,7 +50,7 @@ library HybridLibrary {
 
     //将价格移动到price需要消息的tokenA的数量, 以及新的reserveIn, reserveOut
     function getAmountForMovePrice(uint direction, uint reserveIn, uint reserveOut, uint price, uint decimal)
-    internal pure returns (uint amountIn, uint reserveInNew, uint reserveOutNew) {
+    internal pure returns (uint amountIn, uint amountOut, uint reserveInNew, uint reserveOutNew) {
         (uint baseReserve, uint quoteReserve) = (reserveIn, reserveOut);
         if (direction == 1) {//buy (quoteToken == tokenA)  用tokenA换tokenB
             (baseReserve, quoteReserve) = (reserveOut, reserveIn);
@@ -62,7 +62,7 @@ library HybridLibrary {
             //再计算y' = (997 * x * p - 1000 * y) / 997
             amountIn = b1 > q1 ? (b1 - q1) / 997 : 0;
             //再计算x'
-            uint amountOut = amountIn != 0 ? UniswapV2Library.getAmountOut(amountIn, reserveIn, reserveOut) : 0;
+            amountOut = amountIn != 0 ? UniswapV2Library.getAmountOut(amountIn, reserveIn, reserveOut) : 0;
             //再更新reserveInNew = reserveIn - x', reserveOutNew = reserveOut + y'
             (reserveInNew, reserveOutNew) = (reserveIn + amountIn, reserveOut - amountOut);
         }
@@ -75,7 +75,7 @@ library HybridLibrary {
             //再计算x' = (997 * y * p - 1000 * x) / 997
             amountIn = q1 > b1 ? (q1 - b1) / 997 : 0;
             //再计算y' = (1-0.3%) x' / p
-            uint amountOut = amountIn != 0 ? UniswapV2Library.getAmountOut(amountIn, reserveIn, reserveOut) : 0;
+            amountOut = amountIn != 0 ? UniswapV2Library.getAmountOut(amountIn, reserveIn, reserveOut) : 0;
             //再更新reserveInNew = reserveIn + x', reserveOutNew = reserveOut - y'
             (reserveInNew, reserveOutNew) = (reserveIn + amountIn, reserveOut - amountOut);
         }
