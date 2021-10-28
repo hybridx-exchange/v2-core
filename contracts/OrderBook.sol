@@ -3,7 +3,7 @@ pragma solidity =0.5.16;
 import "../interfaces/IERC20.sol";
 import "../interfaces/IUniswapV2Pair.sol";
 import "../interfaces/IOrderBook.sol";
-import "../libraries/HybridLibrary.sol";
+import "../libraries/UniswapV2Library.sol";
 
 contract OrderQueue {
     //每一个价格对应一个订单队列(方向 -> 价格 -> 索引 -> data ================= 订单队列数据<先进先出>)
@@ -532,7 +532,7 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
             //再计算amm中实际会消耗的amountIn的数量
             amountAmmIn += amountInUsed > amountLeft ? amountLeft : amountInUsed;
             //再计算本次移动价格获得的amountOut
-            amountAmmOut += amountInUsed > amountLeft ? HybridLibrary.getAmountOut(amountLeft, reserveIn, reserveOut)
+            amountAmmOut += amountInUsed > amountLeft ? UniswapV2Library.getAmountOut(amountLeft, reserveIn, reserveOut)
             : amountOutUsed;
             amountLeft = amountInUsed < amountLeft ? amountLeft - amountInUsed : 0;
         }
@@ -604,7 +604,7 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
             //再计算amm中实际会消耗的amountIn的数量
             amountAmmIn += amountInUsed > amountLeft ? amountLeft : amountInUsed;
             //再计算本次移动价格获得的amountOut
-            amountAmmOut += amountInUsed > amountLeft ? HybridLibrary.getAmountOut(amountLeft, reserveIn, reserveOut)
+            amountAmmOut += amountInUsed > amountLeft ? UniswapV2Library.getAmountOut(amountLeft, reserveIn, reserveOut)
             : amountOutUsed;
             amountLeft = amountInUsed < amountLeft ? amountLeft - amountInUsed : 0;
         }
@@ -629,7 +629,7 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
         address to)
     public {
         require(amountOffer >= minAmount, 'UniswapV2 OrderBook: Amount Invalid');
-        require(price % priceStep == 0, 'UniswapV2 OrderBook: Price Invalid');
+        require(price > 0 && price % priceStep == 0, 'UniswapV2 OrderBook: Price Invalid');
 
         //需要先将token转移到order book合约(在router中执行), 以免与pair中的token混合
         uint balance = IERC20(quoteToken).balanceOf(address(this));
@@ -656,7 +656,7 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
         address to)
     public {
         require(amountOffer >= minAmount, 'UniswapV2 OrderBook: Amount Invalid');
-        require(price % priceStep == 0, 'UniswapV2 OrderBook: Price Invalid');
+        require(price > 0 && price % priceStep == 0, 'UniswapV2 OrderBook: Price Invalid');
 
         //需要将token转移到order book合约, 以免与pair中的token混合
 
