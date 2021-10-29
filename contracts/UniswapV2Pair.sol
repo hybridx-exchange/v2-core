@@ -245,7 +245,7 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
     }
 
     // this low-level function should be called from a contract which performs important safety checks
-    function swapOriginal(uint amount0Out, uint amount1Out, address to, bytes calldata data) external {
+    function swapOriginal(uint amount0Out, uint amount1Out, address to, bytes calldata data) external lock {
         require(amount0Out > 0 || amount1Out > 0, 'UniswapV2: INSUFFICIENT_OUTPUT_AMOUNT');
         (uint112 _reserve0, uint112 _reserve1,) = getReserves(); // gas savings
         require(amount0Out < _reserve0 && amount1Out < _reserve1, 'UniswapV2: INSUFFICIENT_LIQUIDITY');
@@ -293,7 +293,7 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         address tokenIn = amount0In != 0 ? _token0 : _token1;
         address tokenOut = tokenIn == _token0 ? _token1 : _token0;
 
-        uint direction = HybridLibrary.getTradeDirection(tokenIn, tokenOut); //direction for tokenA swap to tokenB
+        uint8 direction = HybridLibrary.getTradeDirection(tokenIn, tokenOut); //direction for tokenA swap to tokenB
         uint decimal = HybridLibrary.getPriceDecimal(direction, tokenIn, tokenOut); //use quote token decimal as price decimal
         (uint[] memory priceArray, uint[] memory amountArray) = HybridLibrary.getMarketBook(direction);
         uint reserveIn = tokenIn == _token0 ? _reserve0 : _reserve1;

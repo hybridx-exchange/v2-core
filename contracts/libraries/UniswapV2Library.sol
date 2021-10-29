@@ -40,14 +40,15 @@ library HybridLibrary {
     }
 
     // fetches market order book for a pair for swap tokenA to takenB
-    function getMarketOrder(address orderBook, uint orderDirection) internal view returns (uint[] memory prices, uint[] memory amounts) {
+    function getMarketOrder(address orderBook, uint8 orderDirection) internal view returns (uint[] memory prices,
+        uint[] memory amounts) {
         if (orderBook != address(0)) {
             (prices, amounts) = IOrderBook(orderBook).marketOrder(orderDirection);
         }
     }
 
     //将价格移动到price需要消息的tokenA的数量, 以及新的reserveIn, reserveOut
-    function getAmountForMovePrice(uint direction, uint reserveIn, uint reserveOut, uint price, uint decimal)
+    function getAmountForMovePrice(uint8 direction, uint reserveIn, uint reserveOut, uint price, uint decimal)
     internal pure returns (uint amountIn, uint amountOut, uint reserveInNew, uint reserveOutNew) {
         (uint baseReserve, uint quoteReserve) = (reserveIn, reserveOut);
         if (direction == 1) {//buy (quoteToken == tokenA)  用tokenA换tokenB
@@ -84,7 +85,7 @@ library HybridLibrary {
 
     //使用amountA数量的amountInOffer吃掉在价格price, 数量为amountOutOffer的tokenB, 返回实际消耗的tokenA数量和返回的tokenB的数量，amountOffer需要考虑手续费
     //手续费应该包含在amountOutWithFee中
-    function getAmountForTakePrice(uint direction, uint amountInOffer, uint price, uint decimal, uint amountOutOffer)
+    function getAmountForTakePrice(uint8 direction, uint amountInOffer, uint price, uint decimal, uint amountOutOffer)
     internal pure returns (uint amountIn, uint amountOutWithFee) {
         if (direction == 1) { //buy (quoteToken == tokenA)  用tokenA（usdc)换tokenB(btc)
             uint amountOut = getAmountOutWithPrice(amountInOffer, price, decimal);
@@ -172,8 +173,8 @@ library UniswapV2Library {
             (uint reserveIn, uint reserveOut) = getReserves(factory, path[i], path[i + 1]);
 
             address orderBook = HybridLibrary.getOrderBook(factory, path[i], path[i + 1]);
-            uint tradeDirection = HybridLibrary.getTradeDirection(orderBook, path[i - 1], path[i]); //方向可能等于0
-            uint orderDirection = tradeDirection == 1 ? tradeDirection << 1 : tradeDirection >> 1; //1->2 /2->1 /0->0
+            uint8 tradeDirection = HybridLibrary.getTradeDirection(orderBook, path[i - 1], path[i]); //方向可能等于0
+            uint8 orderDirection = tradeDirection == 1 ? tradeDirection << 1 : tradeDirection >> 1; //1->2 /2->1 /0->0
 
             //path[i-1]兑换path[i], 获取path[i]问的path[i-1]的挂单价格以及对应的数量, 按与当前价格的距离排序
             (uint[] memory priceArray, uint[] memory amountArray) = HybridLibrary.getMarketOrder(orderBook, orderDirection);
@@ -217,8 +218,8 @@ library UniswapV2Library {
             (uint reserveIn, uint reserveOut) = getReserves(factory, path[i - 1], path[i]);
 
             address orderBook = HybridLibrary.getOrderBook(factory, path[i], path[i + 1]);
-            uint tradeDirection = HybridLibrary.getTradeDirection(orderBook, path[i - 1], path[i]); //方向可能等于0
-            uint orderDirection = tradeDirection == 1 ? tradeDirection << 1 : tradeDirection >> 1; //1->2 /2->1 /0->0
+            uint8 tradeDirection = HybridLibrary.getTradeDirection(orderBook, path[i - 1], path[i]); //方向可能等于0
+            uint8 orderDirection = tradeDirection == 1 ? tradeDirection << 1 : tradeDirection >> 1; //1->2 /2->1 /0->0
 
             //判断是否有买单
             (uint[] memory priceArray, uint[] memory amountArray) = HybridLibrary.getMarketOrder(orderBook, orderDirection);

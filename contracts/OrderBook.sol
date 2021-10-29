@@ -186,19 +186,21 @@ contract PriceList {
 
     function nextPrice(
         uint8 direction,
-        uint price) //从0开始获取下一个价格，next为0时结束
+        uint cur) //从0开始获取下一个价格，next为0时结束
     internal
     returns (uint next) {
-        next = limitOrderPriceListMap[direction][price];
+        next = limitOrderPriceListMap[direction][cur];
     }
 }
 
 contract OrderBook is IOrderBook, OrderQueue, PriceList {
+    using SafeMath for uint;
+
     struct Order {
         address orderOwner;
         address to;
         uint orderId;
-        uint limitPrice;
+        uint price;
         uint amountOffer;
         uint amountRemain;
         uint8 orderType; //1: limitBuy, 2: limitSell
@@ -216,12 +218,10 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
 
     //价格间隔参数-保证价格间隔的设置在一个合理的范围内
     uint priceStep; //priceStep 和 minAmount和修改可以考虑在一定时间内由合约创建者负责修改，一定时间后将维护权自动转交给投票合约及管理员
-    //价格小数点位数
-    uint priceDecimal;
     //最小数量
     uint minAmount;
-    //价格的位数与quoteToken保持一致
-    //数量的位数与baseToken保持一致
+    //价格小数点位数
+    uint8 priceDecimal;
 
     //基础货币
     address public baseToken;
@@ -232,34 +232,34 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
     uint private quoteBalance;
 
     //未完成总订单，链上不保存已成交的订单(订单id -> Order)
-    mapping(uint => Order) public allOrders;
+    mapping(uint => Order) public marketOrders;
 
     //用户订单(用户地址 -> 订单id数组)
     mapping(address => uint[]) public userOrders;
 
     event OrderCreated(
         address indexed sender,
-        uint8,
+        address indexed to,
         uint price,
         uint amountOffer,
         uint amountRemain,
-        address indexed to);
+        uint8);
 
     event OrderClosed(
         address indexed sender,
-        uint8,
+        address indexed to,
         uint price,
         uint amountOffer,
         uint amountUsed,
-        address indexed to);
+        uint8);
 
     event OrderCancelled(
         address indexed sender,
-        uint8,
+        address indexed to,
         uint price,
         uint amountOffer,
         uint amountRemain,
-        address indexed to);
+        uint8);
 
     constructor() public {
         pair = msg.sender;
@@ -331,58 +331,52 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
         blockTimestampLast = _blockTimestampLast;
     }
 
-    function tradeDirection(address tokenA, address tokenB)
+    function tradeDirection(address tokenIn, address tokenOut)
     external
+    view
     returns (uint8 direction) {
-        direction = quoteToken == tokenA ? 1 : 2;
-    }
-
-    //创建order对象
-    function _newLimitOrder(
-        address _owner,
-        uint _amountOffer,
-        uint _amountRemain,
-        uint _price,
-        uint8 _type,
-        address _to)
-    private
-    returns (Order memory order) {
-        order = new Order();
-        order.orderOwner = _owner;
-        order.orderId = _generateOrderId();
-        order.amountOffer = _amountOffer;
-        order.amountRemain = _amountRemain;
-        order.limitPrice = _price;
-        order.orderType = _type;
-        order.to = _to;
+        direction = quoteToken == tokenIn ? 1 : 2;
     }
 
     //添加order对象
     function _addLimitOrder(
         address user,
+        address _to,
         uint _amountOffer,
         uint _amountRemain,
         uint _price,
-        uint8 _type,
-        address _to)
-    private {
-        Order memory order = _newLimitOrder(user, _amountOffer, _amountRemain, _price, _type, _to);
+        uint8 _type)
+    private
+    returns (uint orderId) {
         uint[] memory _userOrders = userOrders[user];
         require(_userOrders.length <= 0xff, 'UniswapV2 OrderBook: Order Number is exceeded');
-        order.orderIndex = _userOrders.length;
-        _userOrders.push(order.orderId);
-        allOrders[order.orderId] = order;
+        uint8 orderIndex = (uint8)(_userOrders.length);
+
+        Order memory order = Order(
+            user,
+            _to,
+            _generateOrderId(),
+            _amountOffer,
+            _amountRemain,
+            _price,
+            _type,
+            orderIndex);
+        userOrders[user].push(order.orderId);
+
+        marketOrders[order.orderId] = order;
         if (length(_type, _price) == 0) {
             addPrice(_type, _price);
         }
 
         push(_type, _price, order.orderId);
+
+        return order.orderId;
     }
 
     //删除order对象
     function _removeLimitOrder(Order memory order) private {
         //删除全局订单
-        delete allOrders[order.orderId];
+        delete marketOrders[order.orderId];
 
         //删除用户订单
         uint[] memory _userOrders = userOrders[order.orderOwner];
@@ -393,13 +387,13 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
         }
 
         //删除用户订单
-        _userOrders.pop();
+        userOrders[order.orderOwner].pop();
 
         //删除队列订单
         del(order.orderType, order.price, order.orderId);
 
         //删除价格
-        if (length(order.orderType, order.price)){
+        if (length(order.orderType, order.price) == 0){
             delPrice(order.orderType, order.price);
         }
     }
@@ -421,11 +415,29 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
         }
     }
 
+    //市场订单
+    function marketOrder(
+        uint orderId
+    )
+    external
+    view
+    returns (uint[] memory order){
+        Order memory o = marketOrders[orderId];
+        order[0] = (uint)(o.orderOwner);
+        order[1] = (uint)(o.to);
+        order[2] = o.orderId;
+        order[3] = o.price;
+        order[4] = o.amountOffer;
+        order[5] = o.amountRemain;
+        order[6] = o.orderType;
+        order[7] = o.orderIndex;
+    }
+
     //用于遍历所有订单
     function nextOrder(
         uint8 direction,
         uint curPrice)
-    public
+    external
     view
     returns (uint nextPrice, uint[] memory amounts) {
         nextPrice = nextPrice(direction, curPrice);
@@ -436,7 +448,7 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
     function nextBook(
         uint8 direction,
         uint curPrice)
-    public
+    external
     view
     returns (uint nextPrice, uint amount) {
         nextPrice = nextPrice(direction, curPrice);
@@ -460,7 +472,7 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
                 amountOutWithFee = amountOutOffer.mul(997) / 1000;
                 amountIn = HybridLibrary.getAmountInWithPrice(amountOutWithFee, price, decimal);
             }
-            (accounts, amounts) = takeSellLimitOrder(amountOutWithFee, price);
+            (accounts, amounts, ) = takeLimitOrder(1, amountOutWithFee, price);
         }
         else if (direction == 2) { //sell (quoteToken == tokenB) 用tokenA(btc)换tokenB(usdc)
             uint amountOut = HybridLibrary.getAmountOutWithPrice(amountInOffer, price, decimal);
@@ -471,7 +483,7 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
                 amountOutWithFee = amountOutOffer.mul(997) / 1000;
                 amountIn = HybridLibrary.getAmountInWithPrice(amountOutWithFee, price, decimal);
             }
-            (accounts, amounts) = takeBuyLimitOrder(amountIn, price);
+            (accounts, amounts, ) = takeLimitOrder(1, amountIn, price);
         }
     }
 
@@ -490,8 +502,9 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
         uint amountAmmOut;
         uint direction = 2; //获取反方向的挂单
 
-        (uint price, uint amount) = nextBook(direction, 0);
-        while(price <= _targetPrice) {
+        uint price = nextPrice(direction, 0);
+        uint amount = price != 0 ? listAgg(direction, price) : 0;
+        while(price != 0 && price <= _targetPrice) {
             //先计算pair从当前价格到price消耗amountIn的数量
             (amountInUsed, amountOutUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(
                 direction,
@@ -523,10 +536,11 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
                 break;
             }
 
-            (nextPrice, amount) = nextBook(direction, nextPrice);
+            price = nextPrice(direction, price);
+            amount = price != 0 ? listAgg(direction, price) : 0;
         }
 
-        if (nextPrice < _targetPrice && amountLeft > 0){//处理挂单之外的价格范围
+        if (price < _targetPrice && amountLeft > 0){//处理挂单之外的价格范围
             (amountInUsed, amountOutUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(direction,
                 reserveIn, reserveOut, _targetPrice, priceDecimal);
             //再计算amm中实际会消耗的amountIn的数量
@@ -562,7 +576,8 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
         uint amountAmmOut;
 
         uint direction = 1; //获取反方向的挂单
-        (uint price, uint amount) = nextBook(direction, 0);
+        uint price = nextPrice(direction, 0);
+        uint amount = price != 0 ? listAgg(direction, price) : 0;
         while(price <= _targetPrice) {
             //先计算pair从当前价格到price消耗amountIn的数量
             (amountInUsed, amountOutUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(
@@ -595,10 +610,11 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
                 break;
             }
 
-            (nextPrice, amount) = nextBook(direction, nextPrice);
+            price = nextPrice(direction, price);
+            amount = price != 0 ? listAgg(direction, price) : 0;
         }
 
-        if (nextPrice < _targetPrice && amountLeft > 0){//处理挂单之外的价格范围
+        if (price < _targetPrice && amountLeft > 0){//处理挂单之外的价格范围
             (amountInUsed, amountOutUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(direction,
                 reserveIn, reserveOut, _targetPrice, priceDecimal);
             //再计算amm中实际会消耗的amountIn的数量
@@ -627,7 +643,9 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
         uint amountOffer,
         uint price,
         address to)
-    public {
+    external
+    lock
+    returns (uint orderId) {
         require(amountOffer >= minAmount, 'UniswapV2 OrderBook: Amount Invalid');
         require(price > 0 && price % priceStep == 0, 'UniswapV2 OrderBook: Price Invalid');
 
@@ -641,9 +659,9 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
         uint amountRemain = _movePriceUp(amountOffer, price, to);
         if (amountRemain != 0) {
             //未成交的部分生成限价买单
-            Order memory order = _addLimitOrder(user, amountOffer, amountRemain, price, 1, to);
+            orderId = _addLimitOrder(user, to, amountOffer, amountRemain, price, 1);
             //产生订单创建事件
-            emit OrderCreated(user, 1, price, amountOffer, amountRemain, to);
+            emit OrderCreated(user, to, price, amountOffer, amountRemain, 1);
         }
         //如果完全成交则在成交过程中直接产生订单创建事件和订单成交事件,链上不保存订单历史数据
     }
@@ -654,7 +672,9 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
         uint amountOffer,
         uint price,
         address to)
-    public {
+    external
+    lock
+    returns (uint orderId) {
         require(amountOffer >= minAmount, 'UniswapV2 OrderBook: Amount Invalid');
         require(price > 0 && price % priceStep == 0, 'UniswapV2 OrderBook: Price Invalid');
 
@@ -664,9 +684,9 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
         uint amountRemain = _movePriceDown(amountOffer, price, to);
         if (amountRemain != 0){
             //未成交的部分生成限价买单
-            Order memory order = _addLimitOrder(user, amountOffer, amountRemain, price, 2, to);
+            orderId = _addLimitOrder(user, to, amountOffer, amountRemain, price, 2);
             //产生订单创建事件
-            emit OrderCreated(user, 2, price, amountOffer, amountRemain, to);
+            emit OrderCreated(user, to, price, amountOffer, amountRemain, 2);
         }
     }
 
@@ -674,14 +694,15 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
         uint direction,
         uint amount,
         uint price)
-    public
-    returns (address[] memory accounts, uint[] memory amounts, uint amountTake) {
+    internal
+    returns (address[] memory accounts, uint[] memory amounts, uint amountUsed) {
         uint amountLeft = amount;
         uint index;
         while(length(direction, price) > 0 && amountLeft > 0){
             uint orderId = pop(direction, price);
-            Order memory order = allOrders[orderId];
-            require(orderId == order.orderId && order.orderType == 1 && price == order.limitPrice, 'UniswapV2 OrderBook: Order Invalid');
+            Order memory order = marketOrders[orderId];
+            require(orderId == order.orderId && order.orderType == 1 && price == order.price,
+                'UniswapV2 OrderBook: Order Invalid');
             accounts[index] = order.to;
             amounts[index] = amountLeft > order.amountRemain ? order.amountRemain : amountLeft;
             order.amountRemain = order.amountRemain - amounts[index];
@@ -689,35 +710,34 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
 
             //如果还有剩余，将剩余部分入队列，交易结束
             if (order.amountRemain != 0){
-                push(direction, price, order);
+                push(direction, price, order.orderId);
                 break;
             }
 
             //删除订单
-            delete allOrders[orderId];
+            delete marketOrders[orderId];
 
             //删除用户订单
-            uint[] memory _userOrders = userOrders[order.orderOwner];
-            require(_userOrders.length > order.orderIndex);
+            uint userOrderSize = userOrders[order.orderOwner].length;
+            require(userOrderSize > order.orderIndex);
             //直接用最后一个元素覆盖当前元素
-            _userOrders[order.orderIndex] = _userOrders[_userOrders.length - 1];
-            _userOrders.length--;
+            userOrders[order.orderOwner][order.orderIndex] = userOrders[order.orderOwner][userOrderSize - 1];
+            userOrders[order.orderOwner].length--;
 
             amountLeft = amountLeft - amounts[index++];
         }
 
-        amountTake = amount - amountLeft;
+        amountUsed = amount - amountLeft;
     }
 
     //take buy limit order
     function takeBuyLimitOrder(
         uint amount,
         uint price)
-    public
+    external
     lock
-    returns (address[] memory accounts, uint[] memory amounts) {
-        uint amountTake;
-        (accounts, amounts, amountTake) = takeLimitOrder(1, amount, price);
+    returns (address[] memory accounts, uint[] memory amounts, uint amountUsed) {
+        (accounts, amounts, amountUsed) = takeLimitOrder(1, amount, price);
         //向pair合约转账amountTake
     }
 
@@ -727,9 +747,8 @@ contract OrderBook is IOrderBook, OrderQueue, PriceList {
         uint price)
     public
     lock
-    returns (address[] memory accounts, uint[] memory amounts){
-        uint amountTake;
-        (accounts, amounts, amountTake) = takeLimitOrder(2, amount, price);
+    returns (address[] memory accounts, uint[] memory amounts, uint amountUsed){
+        (accounts, amounts, amountUsed) = takeLimitOrder(2, amount, price);
         //向pair合约转账amountTake
     }
 }
