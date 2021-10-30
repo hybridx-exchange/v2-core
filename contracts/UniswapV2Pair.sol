@@ -293,9 +293,9 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         address tokenIn = amount0In != 0 ? _token0 : _token1;
         address tokenOut = tokenIn == _token0 ? _token1 : _token0;
 
-        uint8 direction = HybridLibrary.getTradeDirection(tokenIn, tokenOut); //direction for tokenA swap to tokenB
-        uint decimal = HybridLibrary.getPriceDecimal(direction, tokenIn, tokenOut); //use quote token decimal as price decimal
-        (uint[] memory priceArray, uint[] memory amountArray) = HybridLibrary.getMarketBook(direction);
+        //direction fortokenA swap to tokenB
+        uint8 direction = HybridLibrary.getTradeDirection(orderBook, tokenIn, tokenOut);
+        uint decimal = HybridLibrary.getPriceDecimal(orderBook); //use quote token decimal as price decimal
         uint reserveIn = tokenIn == _token0 ? _reserve0 : _reserve1;
         uint reserveOut = tokenIn == _token0 ? _reserve1 : _reserve0;
 
@@ -305,11 +305,12 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         uint amountOutUsed;
         uint amountAmmIn;
         uint amountAmmOut;
-        for (uint i = 0; i < priceArray.length; i++) {
+        (uint price, uint amount) = HybridLibrary.getNextBook(orderBook, direction, 0);
+        while (price != 0) {
             //先计算pair从当前价格到price[j]消耗amountIn的数量
             (amountInUsed, amountOutUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(direction,
                 reserveIn,
-                reserveOut, priceArray[i], decimal);
+                reserveOut, price, decimal);
             //再计算本次移动价格获得的amountOut
             amountOutUsed = amountInUsed > amountLeft ? UniswapV2Library.getAmountOut(amountLeft, reserveIn,
                 reserveOut) : amountOutUsed;
@@ -325,8 +326,8 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
             }
 
             //消耗掉一个价格的挂单并返回实际需要的amountIn数量 -- 将amountOut（包含手续费)由orderbook合约先转入入pair合约，便于flash swap使用，返回需要转账的地址和数量
-            (uint amountInForTake, uint amountOutWithFee, address[] memory accounts, uint[] memory amounts) = HybridLibrary.getAmountAndTakePrice
-                (direction, amountLeft, priceArray[i], decimal, amountArray[i]);
+            (uint amountInForTake, uint amountOutWithFee, address[] memory accounts, uint[] memory amounts) =
+                HybridLibrary.getAmountAndTakePrice(orderBook, direction, amountLeft, price, amount);
             //将amountInForTake转移给消费订单对应的账号
             for (uint j = 0; j < accounts.length; j++) {
                 _safeTransfer(tokenIn, accounts[j], amounts[j]);
@@ -336,12 +337,14 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
             if (amountLeft >= amountInForTake) { //amountIn消耗完了
                 break;
             }
+
+            (price, amount) = HybridLibrary.getNextBook(orderBook, direction, price);
         }
 
         //如果所有订单都消耗完，或者没有订单则需要从amm中继续swap
         //先计算pair从当前价格到price[j]消耗amountIn的数量
         (amountInUsed, amountOutUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(direction,
-            reserveIn, reserveOut, (uint)-1, decimal);
+            reserveIn, reserveOut, uint(-1), decimal);
         //再计算本次移动价格获得的amountOut
         amountOutUsed = amountInUsed > amountLeft ? UniswapV2Library.getAmountOut(amountLeft, reserveIn, reserveOut) :
         amountOutUsed;

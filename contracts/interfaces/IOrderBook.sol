@@ -60,19 +60,13 @@ interface IOrderBook {
     view
     returns (uint nextPrice, uint amount);
 
-    //吃特定价格的限价买单
-    function takeBuyLimitOrder(
-        uint amountOffer,
-        uint price)
+    function getAmountAndTakePrice(
+        uint8 direction,
+        uint amountInOffer,
+        uint price,
+        uint amountOutOffer)
     external
-    returns (address[] memory accounts, uint[] memory amounts, uint amountUsed);
-
-    //吃特定价格的限价卖单
-    function takeSellLimitOrder(
-        uint amountOffer,
-        uint price)
-    external
-    returns (address[] memory accounts, uint[] memory amounts, uint amountUsed);
+    returns (uint amountIn, uint amountOutWithFee, address[] memory accounts, uint[] memory amounts);
 
     //根据tokenIn/tokenOut判断交易方向
     function tradeDirection(
