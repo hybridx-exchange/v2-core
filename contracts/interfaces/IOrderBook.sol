@@ -16,7 +16,7 @@ interface IOrderBook {
         uint price,
         address to)
     external
-    returns (uint);
+    returns (uint orderId);
 
     //创建限价买订单
     function createSellLimitOrder(
@@ -25,7 +25,7 @@ interface IOrderBook {
         uint price,
         address to)
     external
-    returns (uint);
+    returns (uint orderId);
 
     //取消订单
     function cancelLimitOrder(uint orderId) external;
@@ -43,14 +43,6 @@ interface IOrderBook {
     external
     view
     returns (uint[] memory prices, uint[] memory amounts);
-
-    //下一个价格对应的订单-用于遍历
-    function nextOrder(
-        uint8 direction,
-        uint curPrice)
-    external
-    view
-    returns (uint nextPrice, uint[] memory amounts);
 
     //下一个价格对应的订单薄-用于遍历所有订单薄
     function nextBook(

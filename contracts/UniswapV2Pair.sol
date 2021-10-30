@@ -398,11 +398,13 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         require(quoteToken == token0 || quoteToken == token1, 'UniswapV2 OrderBook : INVALID_QUOTE_TOKEN');
         bytes memory bytecode = type(OrderBook).creationCode;
         bytes32 salt = keccak256(abi.encodePacked(token1, token0));
+        address _orderBook;
         assembly {
-            orderBook := create2(0, add(bytecode, 32), mload(bytecode), salt)
+            _orderBook := create2(0, add(bytecode, 32), mload(bytecode), salt)
         }
         address baseToken = quoteToken == token0 ? token1 : token0;
-        IOrderBook(orderBook).initialize(baseToken, quoteToken, priceStep, minAmount);
+        IOrderBook(_orderBook).initialize(baseToken, quoteToken, priceStep, minAmount);
+        orderBook = _orderBook;
         emit OrderBookCreated(orderBook, baseToken, quoteToken, priceStep, minAmount);
     }
 }
