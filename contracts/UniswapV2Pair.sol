@@ -276,6 +276,109 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
     }
 
     // this low-level function should be called from a contract which performs important safety checks
+    function swapAmm(
+        uint amount0In,
+        uint amount1In,
+        uint amount0Out,
+        uint amount1Out,
+        address to,
+        bytes memory data)
+    internal {
+        (uint112 _reserve0, uint112 _reserve1,) = getReserves(); // gas savings
+        uint balance0;
+        uint balance1;
+        { // scope for _token{0,1}, avoids stack too deep errors
+            address _token0 = token0;
+            address _token1 = token1;
+            require(to != _token0 && to != _token1, 'UniswapV2: INVALID_TO');
+            if (amount0Out > 0) _safeTransfer(_token0, to, amount0Out); // optimistically transfer tokens
+            if (amount1Out > 0) _safeTransfer(_token1, to, amount1Out); // optimistically transfer tokens
+            if (data.length > 0) IUniswapV2Callee(to).uniswapV2Call(msg.sender, amount0Out, amount1Out, data);
+            balance0 = IERC20(_token0).balanceOf(address(this));
+            balance1 = IERC20(_token1).balanceOf(address(this));
+        }
+
+        { // scope for reserve{0,1}Adjusted, avoids stack too deep errors
+            uint balance0Adjusted = balance0.mul(1000).sub(amount0In.mul(3));
+            uint balance1Adjusted = balance1.mul(1000).sub(amount1In.mul(3));
+            require(balance0Adjusted.mul(balance1Adjusted) >= uint(_reserve0).mul(_reserve1).mul(1000**2), 'UniswapV2: K');
+        }
+
+        _update(balance0, balance1, _reserve0, _reserve1);
+        emit Swap(msg.sender, amount0In, amount1In, amount0Out, amount1Out, to);
+    }
+
+    // this low-level function should be called from a contract which performs important safety checks
+    // 输入输出已经考虑了挂单的情况
+    function swapOrderBook(
+        address tokenIn,
+        address tokenOut,
+        uint reserveIn,
+        uint reserveOut,
+        uint amountIn)
+    internal
+    returns (uint amountAmmIn, uint amountAmmOut){
+        //direction fortokenA swap to tokenB
+        uint8 direction = HybridLibrary.getTradeDirection(orderBook, tokenIn, tokenOut);
+        uint8 decimal = HybridLibrary.getPriceDecimal(orderBook);
+
+        uint amountLeft = amountIn;
+        //uint amountOut;
+        uint amountInUsed;
+        uint amountOutUsed;
+        (uint price, uint amount) = HybridLibrary.getNextBook(orderBook, direction, 0);
+        //只处理挂单，reserveIn/reserveOut只用来计算需要消耗的挂单数量和价格范围
+        while (price != 0) {
+            //先计算pair从当前价格到price[j]消耗amountIn的数量
+            (amountInUsed, amountOutUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(direction,
+                reserveIn, reserveOut, price, decimal);
+            //再计算本次移动价格获得的amountOut
+            amountOutUsed = amountInUsed > amountLeft ? UniswapV2Library.getAmountOut(amountLeft, reserveIn,
+                reserveOut) : amountOutUsed;
+            //amountOut += amountOutUsed;
+            //再计算amm中实际会消耗的amountIn的数量
+            amountAmmIn +=  amountInUsed > amountLeft ? amountLeft : amountInUsed;
+            //再计算amm中实际会消耗的amountOut的数量
+            amountAmmOut += amountOutUsed;
+            //再计算还剩下的amountIn
+            amountLeft = amountInUsed < amountLeft ? amountLeft - amountInUsed : 0;
+            if (amountLeft == 0) {
+                break;
+            }
+
+            {
+                //消耗掉一个价格的挂单并返回实际需要的amountIn数量 -- 将amountOut（包含手续费)由orderbook合约先转入入pair合约，便于flash swap使用，返回需要转账的地址和数量
+                (uint amountInForTake, , address[] memory accounts, uint[] memory amounts) =
+                HybridLibrary.getAmountAndTakePrice(orderBook, direction, amountLeft, price, amount); //会将amountOut转给pair合约
+                //将amountInForTake转移给消费订单对应的账号
+                //for (uint j = 0; j < accounts.length; j++) {
+                //    _safeTransfer(tokenIn, accounts[j], amounts[j]);
+                //}
+
+                //amountOut += amountOutWithFee;
+                if (amountLeft >= amountInForTake) { //amountIn消耗完了
+                    break;
+                }
+            }
+
+            (price, amount) = HybridLibrary.getNextBook(orderBook, direction, price);
+        }
+
+        //如果所有订单都消耗完，或者没有订单则需要从amm中继续swap
+        //先计算pair从当前价格到price[j]消耗amountIn的数量
+        (amountInUsed, amountOutUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(direction,
+            reserveIn, reserveOut, uint(-1), decimal);
+        //再计算本次移动价格获得的amountOut
+        amountOutUsed = amountInUsed > amountLeft ?
+            UniswapV2Library.getAmountOut(amountLeft, reserveIn, reserveOut) : amountOutUsed;
+        //amountOut += amountOutUsed;
+        //再计算amm中实际会消耗的amountIn的数量
+        amountAmmIn +=  amountInUsed > amountLeft ? amountLeft : amountInUsed;
+        //再计算amm中实际会消耗的amountOut的数量
+        amountAmmOut += amountOutUsed;
+    }
+
+    // this low-level function should be called from a contract which performs important safety checks
     // 输入输出已经考虑了挂单的情况
     function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external lock {
         require(amount0Out > 0 || amount1Out > 0, 'UniswapV2: INSUFFICIENT_OUTPUT_AMOUNT');
@@ -290,93 +393,20 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         uint amount1In = balance1 > _reserve1 - amount1Out ? balance1 - (_reserve1 - amount1Out) : 0;
         require(amount0In > 0 || amount1In > 0, 'UniswapV2: INSUFFICIENT_INPUT_AMOUNT');
 
-        address tokenIn = amount0In != 0 ? _token0 : _token1;
-        address tokenOut = tokenIn == _token0 ? _token1 : _token0;
-
-        //direction fortokenA swap to tokenB
-        uint8 direction = HybridLibrary.getTradeDirection(orderBook, tokenIn, tokenOut);
-        uint decimal = HybridLibrary.getPriceDecimal(orderBook); //use quote token decimal as price decimal
-        uint reserveIn = tokenIn == _token0 ? _reserve0 : _reserve1;
-        uint reserveOut = tokenIn == _token0 ? _reserve1 : _reserve0;
-
-        uint amountLeft = amount0In != 0 ? amount0In : amount1In;
-        uint amountOut;
-        uint amountInUsed;
-        uint amountOutUsed;
         uint amountAmmIn;
         uint amountAmmOut;
-        (uint price, uint amount) = HybridLibrary.getNextBook(orderBook, direction, 0);
-        while (price != 0) {
-            //先计算pair从当前价格到price[j]消耗amountIn的数量
-            (amountInUsed, amountOutUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(direction,
-                reserveIn,
-                reserveOut, price, decimal);
-            //再计算本次移动价格获得的amountOut
-            amountOutUsed = amountInUsed > amountLeft ? UniswapV2Library.getAmountOut(amountLeft, reserveIn,
-                reserveOut) : amountOutUsed;
-            amountOut += amountOutUsed;
-            //再计算amm中实际会消耗的amountIn的数量
-            amountAmmIn +=  amountInUsed > amountLeft ? amountLeft : amountInUsed;
-            //再计算amm中实际会消耗的amountOut的数量
-            amountAmmOut += amountOutUsed;
-            //再计算还剩下的amountIn
-            amountLeft = amountInUsed < amountLeft ? amountLeft - amountInUsed : 0;
-            if (amountLeft == 0) {
-                break;
-            }
-
-            //消耗掉一个价格的挂单并返回实际需要的amountIn数量 -- 将amountOut（包含手续费)由orderbook合约先转入入pair合约，便于flash swap使用，返回需要转账的地址和数量
-            (uint amountInForTake, uint amountOutWithFee, address[] memory accounts, uint[] memory amounts) =
-                HybridLibrary.getAmountAndTakePrice(orderBook, direction, amountLeft, price, amount);
-            //将amountInForTake转移给消费订单对应的账号
-            for (uint j = 0; j < accounts.length; j++) {
-                _safeTransfer(tokenIn, accounts[j], amounts[j]);
-            }
-
-            amountOut += amountOutWithFee;
-            if (amountLeft >= amountInForTake) { //amountIn消耗完了
-                break;
-            }
-
-            (price, amount) = HybridLibrary.getNextBook(orderBook, direction, price);
+        if (amount0In != 0) {//挂单相关的直接从orderBook转给to
+            (amountAmmIn, amountAmmOut) = swapOrderBook(_token0, _token1, _reserve0, _reserve1, amount0In);
+        }
+        else{
+            (amountAmmIn, amountAmmOut) = swapOrderBook(_token1, _token0, _reserve1, _reserve0, amount1In);
         }
 
-        //如果所有订单都消耗完，或者没有订单则需要从amm中继续swap
-        //先计算pair从当前价格到price[j]消耗amountIn的数量
-        (amountInUsed, amountOutUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(direction,
-            reserveIn, reserveOut, uint(-1), decimal);
-        //再计算本次移动价格获得的amountOut
-        amountOutUsed = amountInUsed > amountLeft ? UniswapV2Library.getAmountOut(amountLeft, reserveIn, reserveOut) :
-        amountOutUsed;
-        amountOut += amountOutUsed;
-        //再计算amm中实际会消耗的amountIn的数量
-        amountAmmIn +=  amountInUsed > amountLeft ? amountLeft : amountInUsed;
-        //再计算amm中实际会消耗的amountOut的数量
-        amountAmmOut += amountOutUsed;
-
-        {
-            require(to != _token0 && to != _token1, 'UniswapV2: INVALID_TO');
-            if (amount0Out > 0) _safeTransfer(_token0, to, amount0Out); // optimistically transfer tokens
-            if (amount1Out > 0) _safeTransfer(_token1, to, amount1Out); // optimistically transfer tokens
-            if (data.length > 0) IUniswapV2Callee(to).uniswapV2Call(msg.sender, amount0Out, amount1Out, data);
-        }
-
-        { // scope for reserve{0,1}Adjusted, avoids stack too deep errors
-            balance0 = IERC20(_token0).balanceOf(address(this));//前面已经去除订单的金额，此处更新后只有amm相关的资金了
-            balance1 = IERC20(_token1).balanceOf(address(this));
-            amount0Out = tokenIn == _token0 ? 0 : amountAmmOut;//此处只有amm相关金额
-            amount1Out = tokenIn == _token0 ? amountAmmOut : 0;
-            require(amount0Out < _reserve0 && amount1Out < _reserve1, 'UniswapV2: INSUFFICIENT_LIQUIDITY');
-            amount0In = balance0 > _reserve0 - amount0Out ? balance0 - (_reserve0 - amount0Out) : 0; // 此处的资金只用于amm，暂时先复用uniswap v2代码
-            amount1In = balance1 > _reserve1 - amount1Out ? balance1 - (_reserve1 - amount1Out) : 0;
-            require(amount0In == amountAmmIn || amount1In == amountAmmIn, 'UniswapV2: Miscalculate AmountIn');
-            uint balance0Adjusted = balance0.mul(1000).sub(amount0In.mul(3));
-            uint balance1Adjusted = balance1.mul(1000).sub(amount1In.mul(3));
-            require(balance0Adjusted.mul(balance1Adjusted) >= uint(_reserve0).mul(_reserve1).mul(1000**2), 'UniswapV2: K');
-        }
-
-        _update(balance0, balance1, _reserve0, _reserve1);
-        emit Swap(msg.sender, amount0In, amount1In, amount0Out, amount1Out, to);
+        amount0Out = amount0In != 0 ? 0 : amountAmmOut;//此处只有amm相关金额
+        amount1Out = amount1In != 0 ? amountAmmOut : 0;
+        balance0 = IERC20(_token0).balanceOf(address(this));//前面已经去除订单的金额，此处更新后只有amm相关的资金了
+        balance1 = IERC20(_token1).balanceOf(address(this));
+        //swapAmm(amount0In, amount1In, amount0Out, amount1Out, to, data);
     }
 
     // force balances to match reserves
