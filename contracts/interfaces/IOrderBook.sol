@@ -62,8 +62,7 @@ interface IOrderBook {
 
     //根据tokenIn/tokenOut判断交易方向
     function tradeDirection(
-        address tokenIn,
-        address tokenOut)
+        address tokenIn)
     external
     view
     returns (uint8);

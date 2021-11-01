@@ -339,11 +339,18 @@ contract OrderBook is OrderQueue, PriceList {
         blockTimestampLast = _blockTimestampLast;
     }
 
-    function tradeDirection(address tokenIn, address tokenOut)
+    function tradeDirection(address tokenIn)
     external
     view
     returns (uint8 direction) {
         direction = quoteToken == tokenIn ? 1 : 2;
+    }
+
+    function _updateBalance()
+        private
+    {
+        baseBalance = IERC20(baseToken).balanceOf(address(this));
+        quoteBalance = IERC20(quoteToken).balanceOf(address(this));
     }
 
     //添加order对象
@@ -516,21 +523,22 @@ contract OrderBook is OrderQueue, PriceList {
     //使用特定数量的token将价格向上移动到特定值--具体执行放到UniswapV2Pair里面, 在这里需要考虑当前价格到目标价格之间的挂单，amm中的分段只用于计算，实际交易一次性完成，不分段
     function _movePriceUp(
         uint amountOffer,
-        uint _targetPrice,
+        uint targetPrice,
         address to)
     private
     returns (uint amountLeft) {
         (uint reserveOut, uint reserveIn,) = getReserves();
         amountLeft = amountOffer;
         uint amountInUsed;
-        uint amountOutUsed;
+        uint amountOut;
         uint amountAmmIn;
         uint amountAmmOut;
 
         uint price = nextPrice(DIRECTION_LIMIT_SELL, 0);
         uint amount = price != 0 ? listAgg(DIRECTION_LIMIT_SELL, price) : 0;
-        while(price != 0 && price <= _targetPrice) {
+        while(price != 0 && price <= targetPrice) {
             //先计算pair从当前价格到price消耗amountIn的数量
+            uint amountOutUsed;
             (amountInUsed, amountOutUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(
                 DIRECTION_LIMIT_BUY,
                 reserveIn,
@@ -551,6 +559,7 @@ contract OrderBook is OrderQueue, PriceList {
             //消耗掉一个价格的挂单并返回实际需要的amountIn数量
             (uint amountInForTake, uint amountOutWithFee, address[] memory accounts, uint[] memory amounts) =
             _getAmountAndTakePrice(DIRECTION_LIMIT_SELL, amountLeft, price, priceDecimal, amount);
+            amountOut += amountOutWithFee;
             //给对应数量的tokenIn发送给对应的账号
             for(uint i=0; i<accounts.length; i++) {
                 _safeTransfer(quoteToken, accounts[i], amounts[i]);
@@ -565,9 +574,15 @@ contract OrderBook is OrderQueue, PriceList {
             amount = price != 0 ? listAgg(DIRECTION_LIMIT_SELL, price) : 0;
         }
 
-        if (price < _targetPrice && amountLeft > 0){//处理挂单之外的价格范围
+        // 一次性将吃单获得的数量转给用户
+        if (amountOut > 0){
+            _safeTransfer(baseToken, to, amountOut);
+        }
+
+        if (price < targetPrice && amountLeft > 0){//处理挂单之外的价格范围
+            uint amountOutUsed;
             (amountInUsed, amountOutUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice
-            (DIRECTION_LIMIT_BUY, reserveIn, reserveOut, _targetPrice, priceDecimal);
+            (DIRECTION_LIMIT_BUY, reserveIn, reserveOut, targetPrice, priceDecimal);
             //再计算amm中实际会消耗的amountIn的数量
             amountAmmIn += amountInUsed > amountLeft ? amountLeft : amountInUsed;
             //再计算本次移动价格获得的amountOut
@@ -576,34 +591,36 @@ contract OrderBook is OrderQueue, PriceList {
             amountLeft = amountInUsed < amountLeft ? amountLeft - amountInUsed : 0;
         }
 
-        //向pair转账
-        require(IERC20(quoteToken).allowance(address(this), pair) > amountAmmIn, 'UniswapV2 OrderBook: transfer amount exceeds spender allowance');
-        _safeTransfer(quoteToken, pair, amountAmmIn);
+        if (amountAmmIn > 0) {//向pair转账
+            require(IERC20(quoteToken).allowance(address(this), pair) > amountAmmIn, 'UniswapV2 OrderBook: transfer amount exceeds spender allowance');
+            _safeTransfer(quoteToken, pair, amountAmmIn);
 
-        {//将当前价格移动到目标价格并最多消耗amountLeft
-            (uint amount0Out, uint amount1Out) = baseToken == IUniswapV2Pair(pair).token0() ? (uint(0), amountAmmOut) : (amountAmmOut, uint(0));
-            IUniswapV2Pair(pair).swapOriginal(amount0Out, amount1Out, to, new bytes(0));
+            {//将当前价格移动到目标价格并最多消耗amountLeft
+                (uint amount0Out, uint amount1Out) = baseToken == IUniswapV2Pair(pair).token0() ? (uint(0), amountAmmOut) : (amountAmmOut, uint(0));
+                IUniswapV2Pair(pair).swapOriginal(amount0Out, amount1Out, to, new bytes(0));
+            }
         }
     }
 
     //使用特定数量的token将价格向上移动到特定值--具体执行放到UniswapV2Pair里面, 在这里需要考虑当前价格到目标价格之间的挂单
     function _movePriceDown(
         uint amountOffer,
-        uint _targetPrice,
+        uint targetPrice,
         address to)
     private
     returns (uint amountLeft) {
         (uint reserveIn, uint reserveOut,) = getReserves();
         amountLeft = amountOffer;
         uint amountInUsed;
-        uint amountOutUsed;
+        uint amountOut;
         uint amountAmmIn;
         uint amountAmmOut;
 
         uint price = nextPrice(DIRECTION_LIMIT_BUY, 0);
         uint amount = price != 0 ? listAgg(DIRECTION_LIMIT_BUY, price) : 0;
-        while(price <= _targetPrice) {
+        while(price <= targetPrice) {
             //先计算pair从当前价格到price消耗amountIn的数量
+            uint amountOutUsed;
             (amountInUsed, amountOutUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(
                 DIRECTION_LIMIT_SELL,
                 reserveIn,
@@ -624,6 +641,7 @@ contract OrderBook is OrderQueue, PriceList {
             //消耗掉一个价格的挂单并返回实际需要的amountIn数量
             (uint amountInForTake, uint amountOutWithFee, address[] memory accounts, uint[] memory amounts) =
             _getAmountAndTakePrice(DIRECTION_LIMIT_BUY, amountLeft, price, priceDecimal, amount);
+            amountOut += amountOutWithFee;
             //给对应数量的tokenIn发送给对应的账号
             for(uint i=0; i<accounts.length; i++) {
                 _safeTransfer(baseToken, accounts[i], amounts[i]);
@@ -638,9 +656,14 @@ contract OrderBook is OrderQueue, PriceList {
             amount = price != 0 ? listAgg(DIRECTION_LIMIT_BUY, price) : 0;
         }
 
-        if (price < _targetPrice && amountLeft > 0){//处理挂单之外的价格范围
+        if (amountOut > 0){
+            _safeTransfer(quoteToken, to, amountOut);
+        }
+
+        if (price < targetPrice && amountLeft > 0){//处理挂单之外的价格范围
+            uint amountOutUsed;
             (amountInUsed, amountOutUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(DIRECTION_LIMIT_SELL,
-                reserveIn, reserveOut, _targetPrice, priceDecimal);
+                reserveIn, reserveOut, targetPrice, priceDecimal);
             //再计算amm中实际会消耗的amountIn的数量
             amountAmmIn += amountInUsed > amountLeft ? amountLeft : amountInUsed;
             //再计算本次移动价格获得的amountOut
@@ -649,15 +672,16 @@ contract OrderBook is OrderQueue, PriceList {
             amountLeft = amountInUsed < amountLeft ? amountLeft - amountInUsed : 0;
         }
 
-        //向pair转账
-        require(IERC20(baseToken).allowance(address(this), pair) > amountAmmIn,
-        'UniswapV2 OrderBook: transfer amount exceeds spender allowance');
-        _safeTransfer(baseToken, pair, amountAmmIn);
+        if (amountAmmIn > 0){//向pair转账
+            require(IERC20(baseToken).allowance(address(this), pair) > amountAmmIn,
+                'UniswapV2 OrderBook: transfer amount exceeds spender allowance');
+            _safeTransfer(baseToken, pair, amountAmmIn);
 
-        {//将当前价格移动到目标价格并最多消耗amountLeft
-            (uint amount0Out, uint amount1Out) = quoteToken == IUniswapV2Pair(pair).token0() ? (uint(0), amountAmmOut) :
-                (amountAmmOut, uint(0));
-            IUniswapV2Pair(pair).swapOriginal(amount0Out, amount1Out, to, new bytes(0));
+            {//将当前价格移动到目标价格并最多消耗amountLeft
+                (uint amount0Out, uint amount1Out) = quoteToken == IUniswapV2Pair(pair).token0() ? (uint(0), amountAmmOut) :
+            (amountAmmOut, uint(0));
+                IUniswapV2Pair(pair).swapOriginal(amount0Out, amount1Out, to, new bytes(0));
+            }
         }
     }
 
@@ -688,6 +712,11 @@ contract OrderBook is OrderQueue, PriceList {
             emit OrderCreated(user, user, to, price, amountOffer, amountRemain, 1);
         }
         //如果完全成交则在成交过程中直接产生订单创建事件和订单成交事件,链上不保存订单历史数据
+
+        //更新余额
+        if (amountRemain != amountOffer){
+            _updateBalance();
+        }
     }
 
     //创建限价卖订单
@@ -710,11 +739,16 @@ contract OrderBook is OrderQueue, PriceList {
 
         //先在流动性池将价格拉到挂单价，同时还需要吃掉价格范围内的反方向挂单
         uint amountRemain = _movePriceDown(amountOffer, price, to);
-        if (amountRemain != 0){
+        if (amountRemain != 0) {
             //未成交的部分生成限价买单
             orderId = _addLimitOrder(user, to, amountOffer, amountRemain, price, 2);
             //产生订单创建事件
             emit OrderCreated(user, user, to, price, amountOffer, amountRemain, 2);
+        }
+
+        //更新余额
+        if (amountRemain != amountOffer){
+            _updateBalance();
         }
     }
 
@@ -733,6 +767,7 @@ contract OrderBook is OrderQueue, PriceList {
         emit OrderCanceled(msg.sender, o.orderOwner, o.to, o.price, o.amountOffer, o.amountRemain, o.orderType);
     }
 
+    //由pair的swap接口调用
     function takeLimitOrder(
         uint8 direction,
         uint amount,
@@ -784,7 +819,8 @@ contract OrderBook is OrderQueue, PriceList {
     lock
     returns (address[] memory accounts, uint[] memory amounts, uint amountUsed) {
         (accounts, amounts, amountUsed) = takeLimitOrder(1, amount, price);
-        //向pair合约转账amountTake
+        //向pair合约转账amountUsed的baseToken
+        _safeTransfer(baseToken, pair, amountUsed);
     }
 
     //take sell limit order
@@ -795,7 +831,8 @@ contract OrderBook is OrderQueue, PriceList {
     lock
     returns (address[] memory accounts, uint[] memory amounts, uint amountUsed){
         (accounts, amounts, amountUsed) = takeLimitOrder(2, amount, price);
-        //向pair合约转账amountTake
+        //向pair合约转账amountUsed
+        _safeTransfer(quoteToken, pair, amountUsed);
     }
 
     //更新价格间隔

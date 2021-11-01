@@ -19,8 +19,11 @@ library HybridLibrary {
     }
 
     // fetches market order book for a pair for swap tokenA to takenB
-    function getOrderBook(address factory, address tokenA, address tokenB) internal view returns (address orderBook) {
-        address pair = IUniswapV2Factory(factory).getPair(tokenA, tokenB);
+    function getOrderBook(address factory, address tokenIn, address tokenOut)
+    internal
+    view
+    returns (address orderBook) {
+        address pair = IUniswapV2Factory(factory).getPair(tokenIn, tokenOut);
         if (pair != address(0)) {
             orderBook = IUniswapV2Pair(pair).orderBook();
         }
@@ -28,14 +31,13 @@ library HybridLibrary {
 
     function getTradeDirection(
         address orderBook,
-        address tokenA,
-        address tokenB)
+        address tokenIn)
     internal
     view
     returns(uint8 direction) {
         if (orderBook != address(0)) {
             //如果tokenA是计价token, 则表示买, 反之则表示卖
-            direction = IOrderBook(orderBook).tradeDirection(tokenA, tokenB);
+            direction = IOrderBook(orderBook).tradeDirection(tokenIn);
         }
     }
 
@@ -96,26 +98,32 @@ library HybridLibrary {
 
     //使用amountA数量的amountInOffer吃掉在价格price, 数量为amountOutOffer的tokenB, 返回实际消耗的tokenA数量和返回的tokenB的数量，amountOffer需要考虑手续费
     //手续费应该包含在amountOutWithFee中
-    function getAmountForTakePrice(uint8 direction, uint amountInOffer, uint price, uint decimal, uint amountOutOffer)
+    function getAmountForTakePrice(uint8 direction, uint amountInOffer, uint price, uint decimal, uint orderAmount)
     internal pure returns (uint amountIn, uint amountOutWithFee) {
-        if (direction == 1) { //buy (quoteToken == tokenA)  用tokenA（usdc)换tokenB(btc)
-            uint amountOut = getAmountOutWithPrice(amountInOffer, price, decimal);
-            if (amountOut.mul(1000) <= amountOutOffer.mul(997)) { //只吃掉一部分: amountOut > amountOffer * (1-0.3%)
+        if (direction == 1) { //buy (quoteToken == tokenIn)  用tokenIn（usdc)换tokenOut(btc)
+            //amountOut = amountInOffer / price
+            uint amountOut = getAmountInWithPrice(amountInOffer, price, decimal);
+            if (amountOut.mul(1000) <= orderAmount.mul(997)) { //只吃掉一部分: amountOut > amountOffer * (1-0.3%)
                 (amountIn, amountOutWithFee) = (amountInOffer, amountOut);
             }
             else {
-                amountOutWithFee = amountOutOffer.mul(997) / 1000;
-                amountIn = getAmountInWithPrice(amountOutWithFee, price, decimal);
+                uint amountOutWithoutFee = orderAmount.mul(997) / 1000;//吃掉所有
+                //amountIn = amountOutWithoutFee * price
+                (amountIn, amountOutWithFee) = (getAmountOutWithPrice(amountOutWithoutFee, price, decimal),
+                orderAmount);
             }
         }
-        else if (direction == 2) { //sell (quoteToken == tokenB) 用tokenA(btc)换tokenB(usdc)
-            uint amountOut = getAmountOutWithPrice(amountInOffer, price, decimal);
-            if (amountOut.mul(1000) <= amountOutOffer.mul(997)) { //只吃掉一部分: amountOut > amountOffer * (1-0.3%)
+        else if (direction == 2) { //sell (quoteToken == tokenOut) 用tokenIn(btc)换tokenOut(usdc)
+            //amountOut = amountInOffer * price
+            uint amountOut = getAmountInWithPrice(amountInOffer, price, decimal);
+            if (amountOut.mul(1000) <= orderAmount.mul(997)) { //只吃掉一部分: amountOut > amountOffer * (1-0.3%)
                 (amountIn, amountOutWithFee) = (amountInOffer, amountOut);
             }
             else {
-                amountOutWithFee = amountOutOffer.mul(997) / 1000;
-                amountIn = getAmountInWithPrice(amountOutWithFee, price, decimal);
+                uint amountOutWithoutFee = orderAmount.mul(997) / 1000;
+                //amountIn = amountOutWithoutFee / price
+                (amountIn, amountOutWithFee) = (getAmountOutWithPrice(amountOutWithoutFee, price,
+                    decimal), orderAmount);
             }
         }
     }
@@ -194,7 +202,7 @@ library UniswapV2Library {
             (uint reserveIn, uint reserveOut) = getReserves(factory, path[i], path[i + 1]);
 
             address orderBook = HybridLibrary.getOrderBook(factory, path[i], path[i + 1]);
-            uint8 tradeDirection = HybridLibrary.getTradeDirection(orderBook, path[i - 1], path[i]); //方向可能等于0
+            uint8 tradeDirection = HybridLibrary.getTradeDirection(orderBook, path[i - 1]); //方向可能等于0
             uint8 orderDirection = tradeDirection == 1 ? tradeDirection << 1 : tradeDirection >> 1; //1->2 /2->1 /0->0
 
             uint decimal = HybridLibrary.getPriceDecimal(orderBook);
@@ -238,7 +246,7 @@ library UniswapV2Library {
             (uint reserveIn, uint reserveOut) = getReserves(factory, path[i - 1], path[i]);
 
             address orderBook = HybridLibrary.getOrderBook(factory, path[i], path[i + 1]);
-            uint8 tradeDirection = HybridLibrary.getTradeDirection(orderBook, path[i - 1], path[i]); //方向可能等于0
+            uint8 tradeDirection = HybridLibrary.getTradeDirection(orderBook, path[i - 1]); //方向可能等于0
             uint8 orderDirection = tradeDirection == 1 ? tradeDirection << 1 : tradeDirection >> 1; //1->2 /2->1 /0->0
 
             uint decimal = HybridLibrary.getPriceDecimal(orderBook);
