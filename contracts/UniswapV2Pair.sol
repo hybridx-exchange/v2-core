@@ -314,7 +314,7 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         }
     }
 
-    function _takePrice(address tokenIn, uint8 direction, uint amountLeft, uint price, uint orderAmount)
+    function _takePrice(address tokenIn, uint direction, uint amountLeft, uint price, uint orderAmount)
     internal
     returns (uint amountInForTake){
         //消耗掉一个价格的挂单并返回实际需要的amountIn数量 -- 将amountOut（包含手续费)由orderbook合约先转入入pair合约，便于flash swap使用，返回需要转账的地址和数量
@@ -336,8 +336,8 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
     internal
     returns (uint amountAmmIn, uint amountAmmOut){
         //direction fortokenA swap to tokenB
-        uint8 direction = HybridLibrary.getTradeDirection(orderBook, tokenIn);
-        uint8 decimal = HybridLibrary.getPriceDecimal(orderBook);
+        uint direction = HybridLibrary.getTradeDirection(orderBook, tokenIn);
+        uint decimal = HybridLibrary.getPriceDecimal(orderBook);
 
         uint amountLeft = amountIn;
         (uint price, uint amount) = HybridLibrary.getNextBook(orderBook, direction, 0);

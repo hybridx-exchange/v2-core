@@ -34,14 +34,14 @@ library HybridLibrary {
         address tokenIn)
     internal
     view
-    returns(uint8 direction) {
+    returns(uint direction) {
         if (orderBook != address(0)) {
             //如果tokenA是计价token, 则表示买, 反之则表示卖
             direction = IOrderBook(orderBook).tradeDirection(tokenIn);
         }
     }
 
-    function getPriceDecimal(address orderBook) internal view returns (uint8 decimal) {
+    function getPriceDecimal(address orderBook) internal view returns (uint decimal) {
         if (orderBook != address(0)) {
             decimal = IOrderBook(orderBook).priceDecimal();
         }
@@ -50,7 +50,7 @@ library HybridLibrary {
     // fetches market order book for a pair for swap tokenA to takenB
     function getNextBook(
         address orderBook,
-        uint8 orderDirection,
+        uint orderDirection,
         uint curPrice)
     internal
     view
@@ -61,7 +61,7 @@ library HybridLibrary {
     }
 
     //将价格移动到price需要消息的tokenA的数量, 以及新的reserveIn, reserveOut
-    function getAmountForMovePrice(uint8 direction, uint reserveIn, uint reserveOut, uint price, uint decimal)
+    function getAmountForMovePrice(uint direction, uint reserveIn, uint reserveOut, uint price, uint decimal)
     internal pure returns (uint amountIn, uint amountOut, uint reserveInNew, uint reserveOutNew) {
         (uint baseReserve, uint quoteReserve) = (reserveIn, reserveOut);
         if (direction == 1) {//buy (quoteToken == tokenA)  用tokenA换tokenB
@@ -98,7 +98,7 @@ library HybridLibrary {
 
     //使用amountA数量的amountInOffer吃掉在价格price, 数量为amountOutOffer的tokenB, 返回实际消耗的tokenA数量和返回的tokenB的数量，amountOffer需要考虑手续费
     //手续费应该包含在amountOutWithFee中
-    function getAmountForTakePrice(uint8 direction, uint amountInOffer, uint price, uint decimal, uint orderAmount)
+    function getAmountForTakePrice(uint direction, uint amountInOffer, uint price, uint decimal, uint orderAmount)
     internal pure returns (uint amountIn, uint amountOutWithFee) {
         if (direction == 1) { //buy (quoteToken == tokenIn)  用tokenIn（usdc)换tokenOut(btc)
             //amountOut = amountInOffer / price
@@ -128,7 +128,7 @@ library HybridLibrary {
         }
     }
 
-    function getAmountAndTakePrice(address orderBook, uint8 direction, uint amountInOffer, uint price,
+    function getAmountAndTakePrice(address orderBook, uint direction, uint amountInOffer, uint price,
         uint amountOutOffer)
     internal returns (uint amountIn, uint amountOutWithFee, address[] memory accounts, uint[] memory amounts){
         if (orderBook != address(0)) {
@@ -202,8 +202,8 @@ library UniswapV2Library {
             (uint reserveIn, uint reserveOut) = getReserves(factory, path[i], path[i + 1]);
 
             address orderBook = HybridLibrary.getOrderBook(factory, path[i], path[i + 1]);
-            uint8 tradeDirection = HybridLibrary.getTradeDirection(orderBook, path[i - 1]); //方向可能等于0
-            uint8 orderDirection = tradeDirection == 1 ? tradeDirection << 1 : tradeDirection >> 1; //1->2 /2->1 /0->0
+            uint tradeDirection = HybridLibrary.getTradeDirection(orderBook, path[i - 1]); //方向可能等于0
+            uint orderDirection = tradeDirection == 1 ? tradeDirection << 1 : tradeDirection >> 1; //1->2 /2->1 /0->0
 
             uint decimal = HybridLibrary.getPriceDecimal(orderBook);
             uint amountLeft = amounts[i];
@@ -246,8 +246,8 @@ library UniswapV2Library {
             (uint reserveIn, uint reserveOut) = getReserves(factory, path[i - 1], path[i]);
 
             address orderBook = HybridLibrary.getOrderBook(factory, path[i], path[i + 1]);
-            uint8 tradeDirection = HybridLibrary.getTradeDirection(orderBook, path[i - 1]); //方向可能等于0
-            uint8 orderDirection = tradeDirection == 1 ? tradeDirection << 1 : tradeDirection >> 1; //1->2 /2->1 /0->0
+            uint tradeDirection = HybridLibrary.getTradeDirection(orderBook, path[i - 1]); //方向可能等于0
+            uint orderDirection = tradeDirection == 1 ? tradeDirection << 1 : tradeDirection >> 1; //1->2 /2->1 /0->0
 
             uint decimal = HybridLibrary.getPriceDecimal(orderBook);
             //先计算从当前价格到price[i]消耗的数量

@@ -38,7 +38,7 @@ interface IOrderBook {
 
     //市场订单薄
     function marketBook(
-        uint8 direction,
+        uint direction,
         uint32 maxSize)
     external
     view
@@ -46,14 +46,14 @@ interface IOrderBook {
 
     //下一个价格对应的订单薄-用于遍历所有订单薄
     function nextBook(
-        uint8 direction,
+        uint direction,
         uint curPrice)
     external
     view
     returns (uint nextPrice, uint amount);
 
     function getAmountAndTakePrice(
-        uint8 direction,
+        uint direction,
         uint amountInOffer,
         uint price,
         uint amountOutOffer)
@@ -65,10 +65,10 @@ interface IOrderBook {
         address tokenIn)
     external
     view
-    returns (uint8);
+    returns (uint);
 
     //价格小数点位数
-    function priceDecimal() external view returns (uint8);
+    function priceDecimal() external view returns (uint);
 
     //基准token -- 比如btc
     function baseToken() external view returns (address);

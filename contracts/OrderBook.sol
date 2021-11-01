@@ -7,15 +7,15 @@ import "../libraries/UniswapV2Library.sol";
 
 contract OrderQueue {
     //每一个价格对应一个订单队列(方向 -> 价格 -> 索引 -> data ================= 订单队列数据<先进先出>)
-    mapping(uint8 => mapping(uint => mapping(uint => uint))) private limitOrderQueueMap;
+    mapping(uint => mapping(uint => mapping(uint => uint))) private limitOrderQueueMap;
     //每一个价格对应一个订单队列(方向 -> 价格 -> 订单队列头索引)
-    mapping(uint8 => mapping(uint => uint)) private limitOrderQueueFront;
+    mapping(uint => mapping(uint => uint)) private limitOrderQueueFront;
     //每一个价格对应一个订单队列(方向 -> 价格 -> 订单队列尾索引)
-    mapping(uint8 => mapping(uint => uint)) private limitOrderQueueRear;
+    mapping(uint => mapping(uint => uint)) private limitOrderQueueRear;
 
     // Queue length，不考虑溢出的情况
     function length(
-        uint8 direction,
+        uint direction,
         uint price)
     internal
     view
@@ -25,7 +25,7 @@ contract OrderQueue {
 
     // push
     function push(
-        uint8 direction,
+        uint direction,
         uint price,
         uint data)
     internal {
@@ -36,7 +36,7 @@ contract OrderQueue {
 
     // pop
     function pop(
-        uint8 direction,
+        uint direction,
         uint price)
     internal
     returns (uint data) {
@@ -51,7 +51,7 @@ contract OrderQueue {
 
     // del - 调用方保证元素一定存在
     function del(
-        uint8 direction,
+        uint direction,
         uint price,
         uint data)
     internal {
@@ -83,7 +83,7 @@ contract OrderQueue {
 
     // list
     function list(
-        uint8 direction,
+        uint direction,
         uint price)
     internal
     view
@@ -97,7 +97,7 @@ contract OrderQueue {
 
     // listAgg
     function listAgg(
-        uint8 direction,
+        uint direction,
         uint price)
     internal
     view
@@ -112,13 +112,13 @@ contract OrderQueue {
 
 contract PriceList {
     //每一个位置对应一个价格数组(方向 -> 价格 -> 下一个价格) 需要对价格排序 （索引表示价格在map中的顺序）
-    mapping(uint8 => mapping(uint => uint)) private limitOrderPriceListMap;
+    mapping(uint => mapping(uint => uint)) private limitOrderPriceListMap;
     //每一个位置对应一个价格(方向 -> 长度) （用于遍历所有价格时的边界）
-    mapping(uint8 => uint) private limitOrderPriceArrayLength;
+    mapping(uint => uint) private limitOrderPriceArrayLength;
 
     // 链接长度
     function priceLength(
-        uint8 direction)
+        uint direction)
     internal
     view
     returns (uint priceArrayLength) {
@@ -127,7 +127,7 @@ contract PriceList {
 
     // 查找插入位置-上一个位置 + 当前位置
     function priceLocation(
-        uint8 direction,
+        uint direction,
         uint price)
     internal
     view
@@ -158,7 +158,7 @@ contract PriceList {
     }
 
     function addPrice(
-        uint8 direction,
+        uint direction,
         uint price)
     internal {//外部调用保证没有重复
         uint priceArrayLength = limitOrderPriceArrayLength[direction];
@@ -176,7 +176,7 @@ contract PriceList {
     }
 
     function delPrice(
-        uint8 direction,
+        uint direction,
         uint price)
     internal {//外部调用保证元素存在
         (uint preIndex, uint nextIndex) = priceLocation(direction, price);
@@ -187,7 +187,7 @@ contract PriceList {
     }
 
     function nextPrice(
-        uint8 direction,
+        uint direction,
         uint cur) //从0开始获取下一个价格，next为0时结束
     internal
     view
@@ -206,14 +206,14 @@ contract OrderBook is OrderQueue, PriceList {
         uint price;
         uint amountOffer;
         uint amountRemain;
-        uint8 orderType; //1: limitBuy, 2: limitSell
-        uint8 orderIndex; //用户订单索引，一个用户最多255
+        uint orderType; //1: limitBuy, 2: limitSell
+        uint orderIndex; //用户订单索引，一个用户最多255
     }
 
     bytes4 private constant SELECTOR_TRANSFER = bytes4(keccak256(bytes('transfer(address,uint256)')));
     bytes4 private constant SELECTOR_APPROVE = bytes4(keccak256(bytes('approve(address,uint256)')));
-    uint8 private constant DIRECTION_LIMIT_BUY = 1;
-    uint8 private constant DIRECTION_LIMIT_SELL = 2;
+    uint private constant DIRECTION_LIMIT_BUY = 1;
+    uint private constant DIRECTION_LIMIT_SELL = 2;
 
     //名称
     string public constant name = 'Uniswap V2 OrderBook';
@@ -226,7 +226,7 @@ contract OrderBook is OrderQueue, PriceList {
     //最小数量
     uint public minAmount;
     //价格小数点位数
-    uint8 public priceDecimal;
+    uint public priceDecimal;
 
     //基础货币
     address public baseToken;
@@ -249,7 +249,7 @@ contract OrderBook is OrderQueue, PriceList {
         uint price,
         uint amountOffer,
         uint amountRemain,
-        uint8);
+        uint);
 
     event OrderClosed(
         address indexed sender,
@@ -258,7 +258,7 @@ contract OrderBook is OrderQueue, PriceList {
         uint price,
         uint amountOffer,
         uint amountUsed,
-        uint8);
+        uint);
 
     event OrderCanceled(
         address indexed sender,
@@ -267,7 +267,7 @@ contract OrderBook is OrderQueue, PriceList {
         uint price,
         uint amountOffer,
         uint amountRemain,
-        uint8);
+        uint);
 
     constructor() public {
         pair = msg.sender;
@@ -312,7 +312,7 @@ contract OrderBook is OrderQueue, PriceList {
         require(success && (data.length == 0 || abi.decode(data, (bool))), 'UniswapV2 OrderBook: APPROVE_FAILED');
     }
 
-    uint8 private unlocked = 1;
+    uint private unlocked = 1;
     modifier lock() {
         require(unlocked == 1, 'UniswapV2 OrderBook: LOCKED');
         unlocked = 0;
@@ -342,7 +342,7 @@ contract OrderBook is OrderQueue, PriceList {
     function tradeDirection(address tokenIn)
     external
     view
-    returns (uint8 direction) {
+    returns (uint direction) {
         direction = quoteToken == tokenIn ? 1 : 2;
     }
 
@@ -360,12 +360,12 @@ contract OrderBook is OrderQueue, PriceList {
         uint _amountOffer,
         uint _amountRemain,
         uint _price,
-        uint8 _type)
+        uint _type)
     private
     returns (uint orderId) {
         uint[] memory _userOrders = userOrders[user];
         require(_userOrders.length < 0xff, 'UniswapV2 OrderBook: Order Number is exceeded');
-        uint8 orderIndex = (uint8)(_userOrders.length);
+        uint orderIndex = _userOrders.length;
 
         Order memory order = Order(
             user,
@@ -415,7 +415,7 @@ contract OrderBook is OrderQueue, PriceList {
 
     //订单薄，不关注订单具体信息，只用于查询
     function marketBook(
-        uint8 direction,
+        uint direction,
         uint32 maxSize)
     external
     view
@@ -450,7 +450,7 @@ contract OrderBook is OrderQueue, PriceList {
 
     //用于遍历所有订单
     function nextOrder(
-        uint8 direction,
+        uint direction,
         uint cur)
     internal
     view
@@ -461,7 +461,7 @@ contract OrderBook is OrderQueue, PriceList {
 
     //用于遍历所有订单薄
     function nextBook(
-        uint8 direction,
+        uint direction,
         uint cur)
     external
     view
@@ -471,7 +471,7 @@ contract OrderBook is OrderQueue, PriceList {
     }
 
     function _getAmountAndTakePrice(
-        uint8 direction,
+        uint direction,
         uint amountInOffer,
         uint price,
         uint decimal,
@@ -509,7 +509,7 @@ contract OrderBook is OrderQueue, PriceList {
     }
 
     function getAmountAndTakePrice(
-        uint8 direction,
+        uint direction,
         uint amountInOffer,
         uint price,
         uint decimal,
@@ -769,7 +769,7 @@ contract OrderBook is OrderQueue, PriceList {
 
     //由pair的swap接口调用
     function takeLimitOrder(
-        uint8 direction,
+        uint direction,
         uint amount,
         uint price)
     internal
