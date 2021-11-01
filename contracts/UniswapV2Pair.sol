@@ -386,11 +386,15 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
 
         address _token0 = token0;
         address _token1 = token1;
-        uint balance0 = IERC20(_token0).balanceOf(address(this));
-        uint balance1 = IERC20(_token1).balanceOf(address(this));
 
-        uint amount0In = balance0 > _reserve0 - amount0Out ? balance0 - (_reserve0 - amount0Out) : 0; // 此处进入的资金会用于amm + 订单两部分
-        uint amount1In = balance1 > _reserve1 - amount1Out ? balance1 - (_reserve1 - amount1Out) : 0;
+        uint amount0In;
+        uint amount1In;
+        {
+            uint balance0 = IERC20(_token0).balanceOf(address(this));
+            uint balance1 = IERC20(_token1).balanceOf(address(this));
+            amount0In = balance0 > _reserve0 - amount0Out ? balance0 - (_reserve0 - amount0Out) : 0; // 此处进入的资金会用于amm + 订单两部分
+            amount1In = balance1 > _reserve1 - amount1Out ? balance1 - (_reserve1 - amount1Out) : 0;
+        }
         require(amount0In > 0 || amount1In > 0, 'UniswapV2: INSUFFICIENT_INPUT_AMOUNT');
 
         uint amountAmmIn;
@@ -404,9 +408,7 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
 
         amount0Out = amount0In != 0 ? 0 : amountAmmOut;//此处只有amm相关金额
         amount1Out = amount1In != 0 ? amountAmmOut : 0;
-        balance0 = IERC20(_token0).balanceOf(address(this));//前面已经去除订单的金额，此处更新后只有amm相关的资金了
-        balance1 = IERC20(_token1).balanceOf(address(this));
-        //swapAmm(amount0In, amount1In, amount0Out, amount1Out, to, data);
+        swapAmm(amount0In, amount1In, amount0Out, amount1Out, to, data);
     }
 
     // force balances to match reserves

@@ -244,6 +244,7 @@ contract OrderBook is OrderQueue, PriceList {
 
     event OrderCreated(
         address indexed sender,
+        address indexed owner,
         address indexed to,
         uint price,
         uint amountOffer,
@@ -252,14 +253,16 @@ contract OrderBook is OrderQueue, PriceList {
 
     event OrderClosed(
         address indexed sender,
+        address indexed owner,
         address indexed to,
         uint price,
         uint amountOffer,
         uint amountUsed,
         uint8);
 
-    event OrderCancelled(
+    event OrderCanceled(
         address indexed sender,
+        address indexed owner,
         address indexed to,
         uint price,
         uint amountOffer,
@@ -285,7 +288,7 @@ contract OrderBook is OrderQueue, PriceList {
         priceStep = _priceStep;
         priceDecimal = IERC20(_quoteToken).decimals();
         minAmount = _minAmount;
-        // 允许pair合约使用base/quote余额，swap时需要
+        //允许pair合约使用base/quote余额，swap时需要
         _safeApprove(baseToken, pair, uint(-1));
         _safeApprove(quoteToken, pair, uint(-1));
     }
@@ -666,7 +669,7 @@ contract OrderBook is OrderQueue, PriceList {
 
         //需要先将token转移到order book合约(在router中执行), 以免与pair中的token混合
         uint balance = IERC20(quoteToken).balanceOf(address(this));
-        require(amountOffer > balance - quoteBalance);
+        require(amountOffer >= balance - quoteBalance);
         //更新quote余额
         quoteBalance = balance;
 
@@ -676,7 +679,7 @@ contract OrderBook is OrderQueue, PriceList {
             //未成交的部分生成限价买单
             orderId = _addLimitOrder(user, to, amountOffer, amountRemain, price, 1);
             //产生订单创建事件
-            emit OrderCreated(user, to, price, amountOffer, amountRemain, 1);
+            emit OrderCreated(user, user, to, price, amountOffer, amountRemain, 1);
         }
         //如果完全成交则在成交过程中直接产生订单创建事件和订单成交事件,链上不保存订单历史数据
     }
@@ -694,6 +697,10 @@ contract OrderBook is OrderQueue, PriceList {
         require(price > 0 && price % priceStep == 0, 'UniswapV2 OrderBook: Price Invalid');
 
         //需要将token转移到order book合约, 以免与pair中的token混合
+        uint balance = IERC20(baseToken).balanceOf(address(this));
+        require(amountOffer >= balance - baseBalance);
+        //更新quote余额
+        baseBalance = balance;
 
         //先在流动性池将价格拉到挂单价，同时还需要吃掉价格范围内的反方向挂单
         uint amountRemain = _movePriceDown(amountOffer, price, to);
@@ -701,7 +708,7 @@ contract OrderBook is OrderQueue, PriceList {
             //未成交的部分生成限价买单
             orderId = _addLimitOrder(user, to, amountOffer, amountRemain, price, 2);
             //产生订单创建事件
-            emit OrderCreated(user, to, price, amountOffer, amountRemain, 2);
+            emit OrderCreated(user, user, to, price, amountOffer, amountRemain, 2);
         }
     }
 
@@ -709,7 +716,15 @@ contract OrderBook is OrderQueue, PriceList {
         Order memory o = marketOrders[orderId];
         _removeLimitOrder(o);
 
+        address token = o.orderType == 1 ? quoteToken : baseToken;
         //退款
+        _safeTransfer(token, o.to, o.amountRemain);
+        //更新token余额
+        uint balance = IERC20(token).balanceOf(address(this));
+        if (o.orderType == 1) quoteBalance = balance;
+        else baseBalance = balance;
+
+        emit OrderCanceled(msg.sender, o.orderOwner, o.to, o.price, o.amountOffer, o.amountRemain, o.orderType);
     }
 
     function takeLimitOrder(
@@ -745,6 +760,9 @@ contract OrderBook is OrderQueue, PriceList {
             //直接用最后一个元素覆盖当前元素
             userOrders[order.orderOwner][order.orderIndex] = userOrders[order.orderOwner][userOrderSize - 1];
             userOrders[order.orderOwner].length--;
+
+            emit OrderClosed(msg.sender, order.orderOwner, order.to, order.price, order.amountOffer, order
+                .amountRemain, order.orderType);
 
             amountLeft = amountLeft - amounts[index++];
         }
