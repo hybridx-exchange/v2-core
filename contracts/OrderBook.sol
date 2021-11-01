@@ -468,28 +468,34 @@ contract OrderBook is OrderQueue, PriceList {
         uint amountInOffer,
         uint price,
         uint decimal,
-        uint amountOutOffer)
+        uint orderAmount)
     internal
     returns (uint amountIn, uint amountOutWithFee, address[] memory accounts, uint[] memory amounts) {
-        if (direction == 1) { //buy (quoteToken == tokenA)  用tokenA（usdc)换tokenB(btc)
-            uint amountOut = HybridLibrary.getAmountOutWithPrice(amountInOffer, price, decimal);
-            if (amountOut.mul(1000) <= amountOutOffer.mul(997)) { //只吃掉一部分: amountOut > amountOffer * (1-0.3%)
+        if (direction == 1) { //buy (quoteToken == tokenIn)  用tokenIn（usdc)换tokenOut(btc)
+            //amountOut = amountInOffer / price
+            uint amountOut = HybridLibrary.getAmountInWithPrice(amountInOffer, price, decimal);
+            if (amountOut.mul(1000) <= orderAmount.mul(997)) { //只吃掉一部分: amountOut > amountOffer * (1-0.3%)
                 (amountIn, amountOutWithFee) = (amountInOffer, amountOut);
             }
             else {
-                amountOutWithFee = amountOutOffer.mul(997) / 1000;
-                amountIn = HybridLibrary.getAmountInWithPrice(amountOutWithFee, price, decimal);
+                uint amountOutWithoutFee = orderAmount.mul(997) / 1000;//吃掉所有
+                //amountIn = amountOutWithoutFee * price
+                (amountIn, amountOutWithFee) = (HybridLibrary.getAmountOutWithPrice(amountOutWithoutFee, price, decimal),
+                    orderAmount);
             }
             (accounts, amounts, ) = takeLimitOrder(2, amountOutWithFee, price);
         }
-        else if (direction == 2) { //sell (quoteToken == tokenB) 用tokenA(btc)换tokenB(usdc)
-            uint amountOut = HybridLibrary.getAmountOutWithPrice(amountInOffer, price, decimal);
-            if (amountOut.mul(1000) <= amountOutOffer.mul(997)) { //只吃掉一部分: amountOut > amountOffer * (1-0.3%)
+        else if (direction == 2) { //sell (quoteToken == tokenOut) 用tokenIn(btc)换tokenOut(usdc)
+            //amountOut = amountInOffer * price
+            uint amountOut = HybridLibrary.getAmountInWithPrice(amountInOffer, price, decimal);
+            if (amountOut.mul(1000) <= orderAmount.mul(997)) { //只吃掉一部分: amountOut > amountOffer * (1-0.3%)
                 (amountIn, amountOutWithFee) = (amountInOffer, amountOut);
             }
             else {
-                amountOutWithFee = amountOutOffer.mul(997) / 1000;
-                amountIn = HybridLibrary.getAmountInWithPrice(amountOutWithFee, price, decimal);
+                uint amountOutWithoutFee = orderAmount.mul(997) / 1000;
+                //amountIn = amountOutWithoutFee / price
+                (amountIn, amountOutWithFee) = (HybridLibrary.getAmountOutWithPrice(amountOutWithoutFee, price,
+                    decimal), orderAmount);
             }
             (accounts, amounts, ) = takeLimitOrder(1, amountIn, price);
         }
@@ -500,14 +506,14 @@ contract OrderBook is OrderQueue, PriceList {
         uint amountInOffer,
         uint price,
         uint decimal,
-        uint amountOutOffer)
+        uint orderAmount)
     external
     returns (uint amountIn, uint amountOutWithFee, address[] memory accounts, uint[] memory amounts) {
         (amountIn, amountOutWithFee, accounts, amounts) =
-        _getAmountAndTakePrice(direction, amountInOffer, price, decimal, amountOutOffer);
+        _getAmountAndTakePrice(direction, amountInOffer, price, decimal, orderAmount);
     }
 
-    //使用特定数量的token将价格向上移动到特定值--具体执行放到UniswapV2Pair里面, 在这里需要考虑当前价格到目标价格之间的挂单，amm中的分段只用于计算，实际交易整体完成，不分段
+    //使用特定数量的token将价格向上移动到特定值--具体执行放到UniswapV2Pair里面, 在这里需要考虑当前价格到目标价格之间的挂单，amm中的分段只用于计算，实际交易一次性完成，不分段
     function _movePriceUp(
         uint amountOffer,
         uint _targetPrice,
