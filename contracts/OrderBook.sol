@@ -133,23 +133,20 @@ contract PriceList {
     view
     returns (uint preIndex, uint next) {
         preIndex = 0;
-        uint data = limitOrderPriceListMap[direction][0];
-        next = limitOrderPriceListMap[direction][data];
+        next = limitOrderPriceListMap[direction][0];
         if (direction == 1) { //由大到小排列
-            while(data > price) {
-                preIndex = data;
-                data = next;
-                next = limitOrderPriceListMap[direction][data];
+            while(next > price) {
+                preIndex = next;
+                next = limitOrderPriceListMap[direction][next];
                 if (next == 0){
                     break;
                 }
             }
         }
         else if (direction == 2) {//由小到大排列
-            while(data < price) {
-                preIndex = data;
-                data = next;
-                next = limitOrderPriceListMap[direction][data];
+            while(next < price) {
+                preIndex = next;
+                next = limitOrderPriceListMap[direction][next];
                 if (next == 0){
                     break;
                 }
