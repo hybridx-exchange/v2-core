@@ -430,6 +430,21 @@ contract OrderBook is OrderQueue, PriceList {
         }
     }
 
+    //获取某个价格内的订单薄
+    function rangeBook(uint direction, uint price)
+    external
+    view
+    returns (uint[] memory prices, uint[] memory amounts){
+        uint curPrice = nextPrice(direction, 0);
+        uint32 index = 0;
+        while(curPrice != 0 && curPrice <= price){
+            prices[index] = curPrice;
+            amounts[index] = listAgg(direction, curPrice);
+            curPrice = nextPrice(direction, curPrice);
+            index++;
+        }
+    }
+
     //市场订单
     function marketOrder(
         uint orderId

@@ -44,6 +44,12 @@ interface IOrderBook {
     view
     returns (uint[] memory prices, uint[] memory amounts);
 
+    //某个价格范围内的订单薄
+    function rangeBook(uint direction, uint price)
+    external
+    view
+    returns (uint[] memory prices, uint[] memory amounts);
+
     //下一个价格对应的订单薄-用于遍历所有订单薄
     function nextBook(
         uint direction,
