@@ -7,11 +7,11 @@ import "../libraries/UniswapV2Library.sol";
 
 contract OrderQueue {
     //每一个价格对应一个订单队列(方向 -> 价格 -> 索引 -> data ================= 订单队列数据<先进先出>)
-    mapping(uint => mapping(uint => mapping(uint => uint))) private limitOrderQueueMap;
+    mapping(uint => mapping(uint => mapping(uint => uint))) internal limitOrderQueueMap;
     //每一个价格对应一个订单队列(方向 -> 价格 -> 订单队列头索引)
-    mapping(uint => mapping(uint => uint)) private limitOrderQueueFront;
+    mapping(uint => mapping(uint => uint)) internal limitOrderQueueFront;
     //每一个价格对应一个订单队列(方向 -> 价格 -> 订单队列尾索引)
-    mapping(uint => mapping(uint => uint)) private limitOrderQueueRear;
+    mapping(uint => mapping(uint => uint)) internal limitOrderQueueRear;
 
     // Queue length，不考虑溢出的情况
     function length(
@@ -79,34 +79,6 @@ contract OrderQueue {
 
         delete limitOrderQueueMap[direction][price][front];
         limitOrderQueueFront[direction][price]++;
-    }
-
-    // list
-    function list(
-        uint direction,
-        uint price)
-    internal
-    view
-    returns (uint[] memory allData) {
-        uint front = limitOrderQueueFront[direction][price];
-        uint rear = limitOrderQueueRear[direction][price];
-        for (uint i=front; i<rear; i++) {
-            allData[i-front] = limitOrderQueueMap[direction][price][i];
-        }
-    }
-
-    // listAgg
-    function listAgg(
-        uint direction,
-        uint price)
-    internal
-    view
-    returns (uint dataAgg) {
-        uint front = limitOrderQueueFront[direction][price];
-        uint rear = limitOrderQueueRear[direction][price];
-        for (uint i=front; i<rear; i++){
-            dataAgg += limitOrderQueueMap[direction][price][i];
-        }
     }
 }
 
@@ -410,6 +382,37 @@ contract OrderBook is OrderQueue, PriceList {
         }
     }
 
+    // list
+    function list(
+        uint direction,
+        uint price)
+    internal
+    view
+    returns (uint[] memory allData) {
+        uint front = limitOrderQueueFront[direction][price];
+        uint rear = limitOrderQueueRear[direction][price];
+        if (front < rear){
+            allData = new uint[](rear - front);
+            for (uint i=front; i<rear; i++) {
+                allData[i-front] = marketOrders[limitOrderQueueMap[direction][price][i]].amountRemain;
+            }
+        }
+    }
+
+    // listAgg
+    function listAgg(
+        uint direction,
+        uint price)
+    internal
+    view
+    returns (uint dataAgg) {
+        uint front = limitOrderQueueFront[direction][price];
+        uint rear = limitOrderQueueRear[direction][price];
+        for (uint i=front; i<rear; i++){
+            dataAgg += marketOrders[limitOrderQueueMap[direction][price][i]].amountRemain;
+        }
+    }
+
     //订单薄，不关注订单具体信息，只用于查询
     function marketBook(
         uint direction,
@@ -449,6 +452,7 @@ contract OrderBook is OrderQueue, PriceList {
     external
     view
     returns (uint[] memory order){
+        order = new uint[](8);
         Order memory o = marketOrders[orderId];
         order[0] = (uint)(o.orderOwner);
         order[1] = (uint)(o.to);
@@ -797,9 +801,11 @@ contract OrderBook is OrderQueue, PriceList {
             amounts[index] = amountLeft > order.amountRemain ? order.amountRemain : amountLeft;
             order.amountRemain = order.amountRemain - amounts[index];
             //触发订单交易事件
+            emit OrderClosed(msg.sender, order.orderOwner, order.to, order.price, order.amountOffer, order
+                .amountRemain, order.orderType);
 
             //如果还有剩余，将剩余部分入队列，交易结束
-            if (order.amountRemain != 0){
+            if (order.amountRemain != 0) {
                 push(direction, price, order.orderId);
                 break;
             }
@@ -812,10 +818,8 @@ contract OrderBook is OrderQueue, PriceList {
             require(userOrderSize > order.orderIndex);
             //直接用最后一个元素覆盖当前元素
             userOrders[order.orderOwner][order.orderIndex] = userOrders[order.orderOwner][userOrderSize - 1];
-            userOrders[order.orderOwner].length--;
-
-            emit OrderClosed(msg.sender, order.orderOwner, order.to, order.price, order.amountOffer, order
-                .amountRemain, order.orderType);
+            //删除最后元素
+            userOrders[order.orderOwner].pop();
 
             amountLeft = amountLeft - amounts[index++];
         }
