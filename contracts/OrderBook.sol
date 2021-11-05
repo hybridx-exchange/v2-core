@@ -420,9 +420,13 @@ contract OrderBook is OrderQueue, PriceList {
     external
     view
     returns (uint[] memory prices, uint[] memory amounts) {
+        uint priceLength = priceLength(direction);
+        priceLength =  priceLength > maxSize ? maxSize : priceLength;
+        prices = new uint[](priceLength);
+        amounts = new uint[](priceLength);
         uint curPrice = nextPrice(direction, 0);
         uint32 index = 0;
-        while(curPrice != 0 && index < maxSize){
+        while(curPrice != 0 && index < priceLength){
             prices[index] = curPrice;
             amounts[index] = listAgg(direction, curPrice);
             curPrice = nextPrice(direction, curPrice);
@@ -435,6 +439,9 @@ contract OrderBook is OrderQueue, PriceList {
     external
     view
     returns (uint[] memory prices, uint[] memory amounts){
+        uint priceLength = priceLength(direction);
+        prices = new uint[](priceLength);
+        amounts = new uint[](priceLength);
         uint curPrice = nextPrice(direction, 0);
         uint32 index = 0;
         while(curPrice != 0 && curPrice <= price){
@@ -792,7 +799,10 @@ contract OrderBook is OrderQueue, PriceList {
     returns (address[] memory accounts, uint[] memory amounts, uint amountUsed) {
         uint amountLeft = amount;
         uint index;
-        while(length(direction, price) > 0 && amountLeft > 0){
+        uint length = length(direction, price);
+        accounts = new address[](length);
+        amounts = new uint[](length);
+        while(index < length && amountLeft > 0){
             uint orderId = pop(direction, price);
             Order memory order = marketOrders[orderId];
             require(orderId == order.orderId && order.orderType == 1 && price == order.price,
