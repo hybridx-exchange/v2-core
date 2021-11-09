@@ -1,9 +1,9 @@
 pragma solidity =0.5.16;
 
-import "../interfaces/IERC20.sol";
-import "../interfaces/IUniswapV2Pair.sol";
-import "../interfaces/IOrderBook.sol";
-import "../libraries/UniswapV2Library.sol";
+import "./interfaces/IERC20.sol";
+import "./interfaces/IUniswapV2Pair.sol";
+import "./interfaces/IOrderBook.sol";
+import "./libraries/UniswapV2Library.sol";
 
 contract OrderQueue {
     //每一个价格对应一个订单队列(方向 -> 价格 -> 索引 -> data ================= 订单队列数据<先进先出>)
@@ -539,6 +539,8 @@ contract OrderBook is OrderQueue, PriceList {
         uint orderAmount)
     external
     returns (uint amountIn, uint amountOutWithFee, address[] memory accounts, uint[] memory amounts) {
+        //先吃单再付款，需要保证只有pair可以调用
+        require(msg.sender == pair, 'invalid sender');
         (amountIn, amountOutWithFee, accounts, amounts) =
         _getAmountAndTakePrice(direction, amountInOffer, price, decimal, orderAmount);
     }
