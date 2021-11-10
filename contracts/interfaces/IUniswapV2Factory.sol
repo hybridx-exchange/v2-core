@@ -11,6 +11,8 @@ interface IUniswapV2Factory {
     function allPairsLength() external view returns (uint);
 
     function createPair(address tokenA, address tokenB) external returns (address pair);
+    function getOrderBookFactory() external view returns (address factory);
+    function setOrderBookFactory(address _orderBookFactory) external;
 
     function setFeeTo(address) external;
     function setFeeToSetter(address) external;

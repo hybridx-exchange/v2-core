@@ -187,6 +187,9 @@ contract OrderBook is OrderQueue, PriceList {
     //名称
     string public constant name = 'Uniswap V2 OrderBook';
 
+    //order book factory
+    address public factory;
+
     //货币对
     address public pair;
 
@@ -239,19 +242,27 @@ contract OrderBook is OrderQueue, PriceList {
         uint);
 
     constructor() public {
-        pair = msg.sender;
+        factory = msg.sender;
     }
 
     // called once by the factory at time of deployment
     function initialize(
+        address _pair,
         address _baseToken,
         address _quoteToken,
         uint _priceStep,
         uint _minAmount)
     external {
-        require(msg.sender == pair, 'UniswapV2 OrderBook: FORBIDDEN'); // sufficient check
-        require(baseToken != quoteToken, 'UniswapV2 OrderBook: Token Pair Invalid');
+        require(msg.sender == factory, 'UniswapV2 OrderBook: FORBIDDEN'); // sufficient check
         require(_priceStep >= 1, 'UniswapV2 OrderBook: Price Step Invalid');
+        require(_minAmount >= 1, 'UniswapV2 OrderBook: Min Amount Invalid');
+        (address token0, address token1) = (IUniswapV2Pair(_pair).token0(), IUniswapV2Pair(_pair).token1());
+        require(
+            (token0 == _baseToken && token1 == _quoteToken) &&
+            (token1 == _baseToken && token0 == _quoteToken),
+            'UniswapV2 OrderBook: Token Pair Invalid');
+
+        pair = _pair;
         baseToken = _baseToken;
         quoteToken = _quoteToken;
         priceStep = _priceStep;

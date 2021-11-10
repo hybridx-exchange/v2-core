@@ -2,9 +2,11 @@ pragma solidity =0.5.16;
 
 import './libraries/UQ112x112.sol';
 import './libraries/Math.sol';
+import './libraries/SafeMath.sol';
+import './libraries/UniswapV2Library.sol';
+import './interfaces/IERC20.sol';
 import './interfaces/IUniswapV2Callee.sol';
 import "./interfaces/IUniswapV2ERC20.sol";
-import './OrderBook.sol';
 
 contract UniswapV2ERC20 is IUniswapV2ERC20 {
     using SafeMath for uint;
@@ -106,7 +108,6 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
     address public factory;
     address public token0;
     address public token1;
-    address public orderBook;
 
     uint112 private reserve0;           // uses single storage slot, accessible via getReserves
     uint112 private reserve1;           // uses single storage slot, accessible via getReserves
@@ -314,7 +315,13 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         }
     }
 
-    function _takePrice(address tokenIn, uint direction, uint amountLeft, uint price, uint orderAmount)
+    function _takePrice(
+        address orderBook,
+        address tokenIn,
+        uint direction,
+        uint amountLeft,
+        uint price,
+        uint orderAmount)
     internal
     returns (uint amountInForTake){
         //消耗掉一个价格的挂单并返回实际需要的amountIn数量 -- 将amountOut（包含手续费)由orderbook合约先转入入pair合约，便于flash swap使用，返回需要转账的地址和数量
@@ -329,6 +336,7 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
     // this low-level function should be called from a contract which performs important safety checks
     // 输入输出已经考虑了挂单的情况
     function swapOrderBook(
+        address orderBook,
         address tokenIn,
         uint reserveIn,
         uint reserveOut,
@@ -367,7 +375,7 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
 
             {
                 //消耗掉一个价格的挂单并返回实际需要的amountIn数量 -- 将amountOut（包含手续费)由orderbook合约先转入入pair合约，便于flash swap使用，返回需要转账的地址和数量
-                uint amountInForTake = _takePrice(tokenIn, ~direction, amountLeft, price, amount);
+                uint amountInForTake = _takePrice(orderBook, tokenIn, ~direction, amountLeft, price, amount);
                 //amountOut += amountOutWithFee;
                 if (amountLeft > amountInForTake) {
                     amountLeft = amountLeft - amountInForTake;
@@ -411,18 +419,22 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
             amount1In = balance1 > _reserve1 - amount1Out ? balance1 - (_reserve1 - amount1Out) : 0;
         }
         require(amount0In > 0 || amount1In > 0, 'UniswapV2: INSUFFICIENT_INPUT_AMOUNT');
+        address orderBookFactory = IUniswapV2Factory(factory).getOrderBookFactory();
+        if (orderBookFactory != address(0)){
+            uint amountAmmIn;
+            uint amountAmmOut;
+            address orderBook = IOrderBookFactory(orderBookFactory).getOrderBook(_token0, token1);
+            if (amount0In != 0) {//挂单相关的直接从orderBook转给to
+                (amountAmmIn, amountAmmOut) = swapOrderBook(orderBook, _token0, _reserve0, _reserve1, amount0In);
+            }
+            else{
+                (amountAmmIn, amountAmmOut) = swapOrderBook(orderBook, _token1, _reserve1, _reserve0, amount1In);
+            }
 
-        uint amountAmmIn;
-        uint amountAmmOut;
-        if (amount0In != 0) {//挂单相关的直接从orderBook转给to
-            (amountAmmIn, amountAmmOut) = swapOrderBook(_token0, _reserve0, _reserve1, amount0In);
-        }
-        else{
-            (amountAmmIn, amountAmmOut) = swapOrderBook(_token1, _reserve1, _reserve0, amount1In);
+            amount0Out = amount0In != 0 ? 0 : amountAmmOut;//此处只有amm相关金额
+            amount1Out = amount1In != 0 ? amountAmmOut : 0;
         }
 
-        amount0Out = amount0In != 0 ? 0 : amountAmmOut;//此处只有amm相关金额
-        amount1Out = amount1In != 0 ? amountAmmOut : 0;
         swapAmm(amount0In, amount1In, amount0Out, amount1Out, to, data);
     }
 
@@ -439,19 +451,4 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         _update(IERC20(token0).balanceOf(address(this)), IERC20(token1).balanceOf(address(this)), reserve0, reserve1);
     }
 
-    //create order book
-    function createOrderBook(address quoteToken, uint priceStep, uint minAmount) external lock {
-        require(orderBook == address(0), 'UniswapV2 OrderBook : ORDER_BOOK_EXISTS');
-        require(quoteToken == token0 || quoteToken == token1, 'UniswapV2 OrderBook : INVALID_QUOTE_TOKEN');
-        bytes memory bytecode = type(OrderBook).creationCode;
-        bytes32 salt = keccak256(abi.encodePacked(token1, token0));
-        address _orderBook;
-        assembly {
-            _orderBook := create2(0, add(bytecode, 32), mload(bytecode), salt)
-        }
-        address baseToken = quoteToken == token0 ? token1 : token0;
-        IOrderBook(_orderBook).initialize(baseToken, quoteToken, priceStep, minAmount);
-        orderBook = _orderBook;
-        emit OrderBookCreated(orderBook, baseToken, quoteToken, priceStep, minAmount);
-    }
 }
