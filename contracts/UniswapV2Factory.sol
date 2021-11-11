@@ -4,7 +4,7 @@ import './UniswapV2Pair.sol';
 
 contract UniswapV2Factory is IUniswapV2Factory {
     address public feeTo;
-    address public feeToSetter;
+    address public admin;
     address public getOrderBookFactory;
 
     mapping(address => mapping(address => address)) public getPair;
@@ -12,8 +12,8 @@ contract UniswapV2Factory is IUniswapV2Factory {
 
     event PairCreated(address indexed token0, address indexed token1, address pair, uint);
 
-    constructor(address _feeToSetter) public {
-        feeToSetter = _feeToSetter;
+    constructor(address _admin) public {
+        admin = _admin;
     }
 
     function allPairsLength() external view returns (uint) {
@@ -38,17 +38,17 @@ contract UniswapV2Factory is IUniswapV2Factory {
     }
 
     function setFeeTo(address _feeTo) external {
-        require(msg.sender == feeToSetter, 'UniswapV2: FORBIDDEN');
+        require(msg.sender == admin, 'UniswapV2: FORBIDDEN');
         feeTo = _feeTo;
     }
 
-    function setFeeToSetter(address _feeToSetter) external {
-        require(msg.sender == feeToSetter, 'UniswapV2: FORBIDDEN');
-        feeToSetter = _feeToSetter;
+    function setAdmin(address _admin) external {
+        require(msg.sender == admin, 'UniswapV2: FORBIDDEN');
+        admin = _admin;
     }
 
     function setOrderBookFactory(address _orderBookFactory) external {
-        require(msg.sender == feeToSetter, 'UniswapV2: FORBIDDEN');
+        require(msg.sender == admin, 'UniswapV2: FORBIDDEN');
         getOrderBookFactory = _orderBookFactory;
     }
 }
