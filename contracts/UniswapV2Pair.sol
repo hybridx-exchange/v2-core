@@ -3,8 +3,10 @@ pragma solidity =0.5.16;
 import './libraries/UQ112x112.sol';
 import './libraries/Math.sol';
 import './libraries/SafeMath.sol';
+import './libraries/TransferHelper.sol';
 import './libraries/UniswapV2Library.sol';
 import './interfaces/IERC20.sol';
+import './interfaces/IWETH.sol';
 import './interfaces/IUniswapV2Callee.sol';
 import "./interfaces/IUniswapV2ERC20.sol";
 
@@ -310,8 +312,18 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
     }
 
     function _batchTransfer(address token, address[] memory accounts, uint[] memory amounts) internal {
-        for(uint i=0; i<accounts.length; i++) {
-            _safeTransfer(token, accounts[i], amounts[i]);
+        address orderBookFactory = IUniswapV2Factory(factory).getOrderBookFactory();
+        if (orderBookFactory != address(0)) {
+            address WETH = IOrderBookFactory(factory).WETH();
+            for(uint i=0; i<accounts.length; i++) {
+                if (WETH == token) {
+                    IWETH(WETH).withdraw(amounts[i]);
+                    TransferHelper.safeTransferETH(accounts[i], amounts[i]);
+                }
+                else {
+                    _safeTransfer(token, accounts[i], amounts[i]);
+                }
+            }
         }
     }
 

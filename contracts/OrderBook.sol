@@ -400,6 +400,30 @@ contract OrderBook is OrderQueue, PriceList {
         _getAmountAndTakePrice(direction, amountInOffer, price, decimal, orderAmount); //当token为weth时，外部调用的时候直接将weth转出
     }
 
+    function _batchTransfer(address token, address[] memory accounts, uint[] memory amounts) internal {
+        address WETH = IOrderBookFactory(factory).WETH();
+        for(uint i=0; i<accounts.length; i++) {
+            if (WETH == token){
+                IWETH(WETH).withdraw(amounts[i]);
+                TransferHelper.safeTransferETH( accounts[i], amounts[i]);
+            }
+            else {
+                _safeTransfer(token, accounts[i], amounts[i]);
+            }
+        }
+    }
+
+    function _singleTransfer(address token, address to, uint amount) internal {
+        address WETH = IOrderBookFactory(factory).WETH();
+        if (token == WETH) {
+            IWETH(WETH).withdraw(amount);
+            TransferHelper.safeTransferETH(to, amount);
+        }
+        else{
+            _safeTransfer(token, to, amount);
+        }
+    }
+
     //使用特定数量的token将价格向上移动到特定值--具体执行放到UniswapV2Pair里面, 在这里需要考虑当前价格到目标价格之间的挂单，amm中的分段只用于计算，实际交易一次性完成，不分段
     function _movePriceUp(
         uint amountOffer,
@@ -445,6 +469,8 @@ contract OrderBook is OrderQueue, PriceList {
                 _safeTransfer(quoteToken, accounts[i], amounts[i]);
             }
 
+            _batchTransfer(quoteToken, accounts, amounts);
+
             amountLeft = amountInForTake < amountLeft ? amountLeft - amountInForTake : 0;
             if (amountLeft == 0) { //amountIn消耗完了
                 break;
@@ -455,8 +481,8 @@ contract OrderBook is OrderQueue, PriceList {
         }
 
         // 一次性将吃单获得的数量转给用户
-        if (amountOut > 0){
-            _safeTransfer(baseToken, to, amountOut);
+        if (amountOut > 0) {//当token为weth时，需要将weth转为eth转给用户
+            _singleTransfer(baseToken, to, amountOut);
         }
 
         if (price < targetPrice && amountLeft > 0){//处理挂单之外的价格范围
@@ -522,10 +548,9 @@ contract OrderBook is OrderQueue, PriceList {
             (uint amountInForTake, uint amountOutWithFee, address[] memory accounts, uint[] memory amounts) =
             _getAmountAndTakePrice(LIMIT_BUY, amountLeft, price, priceDecimal, amount);
             amountOut += amountOutWithFee;
+
             //给对应数量的tokenIn发送给对应的账号
-            for(uint i=0; i<accounts.length; i++) {
-                _safeTransfer(baseToken, accounts[i], amounts[i]);
-            }
+            _batchTransfer(baseToken, accounts, amounts);
 
             amountLeft = amountInForTake < amountLeft ? amountLeft - amountInForTake : 0;
             if (amountLeft == 0) { //amountIn消耗完了
@@ -537,7 +562,7 @@ contract OrderBook is OrderQueue, PriceList {
         }
 
         if (amountOut > 0){
-            _safeTransfer(quoteToken, to, amountOut);
+            _singleTransfer(quoteToken, to, amountOut);
         }
 
         if (price < targetPrice && amountLeft > 0){//处理挂单之外的价格范围
@@ -728,11 +753,13 @@ contract OrderBook is OrderQueue, PriceList {
 
     //更新价格间隔
     function priceStepUpdate(uint newPriceStep) external lock {
+        require(priceLength(LIMIT_BUY) == 0 && priceLength(LIMIT_SELL) == 0, 'UniswapV2 OrderBook: Order Exist');
         priceStep = newPriceStep;
     }
 
     //更新最小数量
     function minAmountUpdate(uint newMinAmount) external lock {
+        require(priceLength(LIMIT_BUY) == 0 && priceLength(LIMIT_SELL) == 0, 'UniswapV2 OrderBook: Order Exist');
         minAmount = newMinAmount;
     }
 }
