@@ -1,8 +1,10 @@
 pragma solidity =0.5.16;
 
 import "./interfaces/IERC20.sol";
+import "./interfaces/IWETH.sol";
 import "./interfaces/IUniswapV2Pair.sol";
 import "./interfaces/IOrderBook.sol";
+import './libraries/TransferHelper.sol';
 import "./libraries/UniswapV2Library.sol";
 
 contract OrderQueue {
@@ -728,10 +730,19 @@ contract OrderBook is OrderQueue, PriceList {
         uint price,
         address to)
     external
+    payable
     lock
     returns (uint orderId) {
         require(amountOffer >= minAmount, 'UniswapV2 OrderBook: Amount Invalid');
         require(price > 0 && price % priceStep == 0, 'UniswapV2 OrderBook: Price Invalid');
+        address WETH = IOrderBookFactory(factory).WETH();
+        if (WETH == quoteToken) {
+            require(msg.value >= amountOffer);
+            IWETH(WETH).deposit.value(amountOffer)();
+            if (msg.value > amountOffer){
+                TransferHelper.safeTransferETH(user, msg.value - amountOffer);
+            }
+        }
 
         //需要先将token转移到order book合约(在router中执行), 以免与pair中的token混合
         uint balance = IERC20(quoteToken).balanceOf(address(this));
@@ -762,10 +773,20 @@ contract OrderBook is OrderQueue, PriceList {
         uint price,
         address to)
     external
+    payable
     lock
     returns (uint orderId) {
         require(amountOffer >= minAmount, 'UniswapV2 OrderBook: Amount Invalid');
         require(price > 0 && price % priceStep == 0, 'UniswapV2 OrderBook: Price Invalid');
+
+        address WETH = IOrderBookFactory(factory).WETH();
+        if (WETH == baseToken) {
+            require(msg.value >= amountOffer);
+            IWETH(WETH).deposit.value(amountOffer)();
+            if (msg.value > amountOffer){
+                TransferHelper.safeTransferETH(user, msg.value - amountOffer);
+            }
+        }
 
         //需要将token转移到order book合约, 以免与pair中的token混合
         uint balance = IERC20(baseToken).balanceOf(address(this));
@@ -793,8 +814,16 @@ contract OrderBook is OrderQueue, PriceList {
         _removeLimitOrder(o);
 
         address token = o.orderType == 1 ? quoteToken : baseToken;
+        address WETH = IOrderBookFactory(factory).WETH();
         //退款
-        _safeTransfer(token, o.to, o.amountRemain);
+        if (WETH == token) {
+            IWETH(WETH).withdraw(o.amountRemain);
+            TransferHelper.safeTransferETH(o.to, o.amountRemain);
+        }
+        else {
+            _safeTransfer(token, o.to, o.amountRemain);
+        }
+
         //更新token余额
         uint balance = IERC20(token).balanceOf(address(this));
         if (o.orderType == 1) quoteBalance = balance;

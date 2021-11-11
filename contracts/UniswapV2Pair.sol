@@ -328,7 +328,8 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         address[] memory accounts;
         uint[] memory amounts;
         (amountInForTake, , accounts, amounts) =
-            HybridLibrary.getAmountAndTakePrice(orderBook, direction, amountLeft, price, orderAmount); //会将amountOut转给pair合约
+        IOrderBook(orderBook).getAmountAndTakePrice(direction, amountLeft, price, orderAmount);
+        //会将amountOut转给pair合约
         //将amountInForTake转移给消费订单对应的账号
         _batchTransfer(tokenIn, accounts, amounts);
     }

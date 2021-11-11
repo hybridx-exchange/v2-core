@@ -157,16 +157,6 @@ library HybridLibrary {
             }
         }
     }
-
-    function getAmountAndTakePrice(address orderBook, uint direction, uint amountInOffer, uint price,
-        uint amountOutOffer)
-    internal returns (uint amountIn, uint amountOutWithFee, address[] memory accounts, uint[] memory amounts){
-        if (orderBook != address(0)) {
-            (amountIn, amountOutWithFee, accounts, amounts) =
-                IOrderBook(orderBook).getAmountAndTakePrice(direction, amountInOffer, price,
-                    amountOutOffer);
-        }
-    }
 }
 
 library UniswapV2Library {

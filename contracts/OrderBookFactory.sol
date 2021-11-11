@@ -6,7 +6,8 @@ contract OrderBookFactory is IOrderBookFactory {
 
     mapping(address => mapping(address => address)) public getOrderBook;
     address[] public allOrderBooks;
-    address pairFactory;
+    address public pairFactory;
+    address public WETH;
 
     event OrderBookCreated(
         address indexed pair,
@@ -14,8 +15,9 @@ contract OrderBookFactory is IOrderBookFactory {
         uint,
         uint);
 
-    constructor(address _factory) public {
+    constructor(address _factory, address _WETH) public {
         pairFactory = _factory;
+        WETH = _WETH;
     }
 
     function allOrderBookLength() external view returns (uint) {
