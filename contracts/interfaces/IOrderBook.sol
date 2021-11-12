@@ -13,7 +13,6 @@ interface IOrderBook {
     //创建限价买订单
     function createBuyLimitOrder(
         address user,
-        uint amountOffer,
         uint price,
         address to)
     external
@@ -22,7 +21,6 @@ interface IOrderBook {
     //创建限价买订单
     function createSellLimitOrder(
         address user,
-        uint amountOffer,
         uint price,
         address to)
     external
