@@ -346,7 +346,7 @@ contract OrderBook is OrderQueue, PriceList {
         uint orderAmount)
     internal
     returns (uint amountIn, uint amountOutWithFee, address[] memory accounts, uint[] memory amounts) {
-        if (direction == 1) { //buy (quoteToken == tokenIn)  用tokenIn（usdc)换tokenOut(btc)
+        if (direction == LIMIT_BUY) { //buy (quoteToken == tokenIn)  用tokenIn（usdc)换tokenOut(btc)
             //amountOut = amountInOffer / price
             uint amountOut = HybridLibrary.getAmountInWithPrice(amountInOffer, price, decimal);
             if (amountOut.mul(1000) <= orderAmount.mul(997)) { //只吃掉一部分: amountOut > amountOffer * (1-0.3%)
@@ -358,9 +358,9 @@ contract OrderBook is OrderQueue, PriceList {
                 (amountIn, amountOutWithFee) = (HybridLibrary.getAmountOutWithPrice(amountOutWithoutFee, price, decimal),
                     orderAmount);
             }
-            (accounts, amounts, ) = takeLimitOrder(2, amountOutWithFee, price);
+            (accounts, amounts, ) = _takeLimitOrder(LIMIT_SELL, amountOutWithFee, price);
         }
-        else if (direction == 2) { //sell (quoteToken == tokenOut) 用tokenIn(btc)换tokenOut(usdc)
+        else if (direction == LIMIT_SELL) { //sell (quoteToken == tokenOut) 用tokenIn(btc)换tokenOut(usdc)
             //amountOut = amountInOffer * price
             uint amountOut = HybridLibrary.getAmountInWithPrice(amountInOffer, price, decimal);
             if (amountOut.mul(1000) <= orderAmount.mul(997)) { //只吃掉一部分: amountOut > amountOffer * (1-0.3%)
@@ -372,11 +372,12 @@ contract OrderBook is OrderQueue, PriceList {
                 (amountIn, amountOutWithFee) = (HybridLibrary.getAmountOutWithPrice(amountOutWithoutFee, price,
                     decimal), orderAmount);
             }
-            (accounts, amounts, ) = takeLimitOrder(1, amountIn, price);
+            (accounts, amounts, ) = _takeLimitOrder(LIMIT_BUY, amountIn, price);
         }
     }
 
-    function getAmountAndTakePrice(//=================资金关系需要整理
+    function getAmountAndTakePrice(
+        address to,
         uint direction,
         uint amountInOffer,
         uint price,
@@ -385,9 +386,13 @@ contract OrderBook is OrderQueue, PriceList {
     external
     returns (uint amountIn, uint amountOutWithFee, address[] memory accounts, uint[] memory amounts) {
         //先吃单再付款，需要保证只有pair可以调用
-        require(msg.sender == pair, 'invalid sender');
+        require(msg.sender == pair, 'UniswapV2 OrderBook: invalid sender');
         (amountIn, amountOutWithFee, accounts, amounts) =
-        _getAmountAndTakePrice(direction, amountInOffer, price, decimal, orderAmount); //当token为weth时，外部调用的时候直接将weth转出
+        _getAmountAndTakePrice(direction, amountInOffer, price, decimal, orderAmount);
+
+        //当token为weth时，外部调用的时候直接将weth转出
+        address tokenOut = direction == LIMIT_BUY ? baseToken : quoteToken;
+        _safeTransfer(tokenOut, to, amountOutWithFee);
     }
 
     function _batchTransfer(address token, address[] memory accounts, uint[] memory amounts) internal {
@@ -487,7 +492,7 @@ contract OrderBook is OrderQueue, PriceList {
                 LIMIT_BUY,
                 reserveIn,
                 reserveOut,
-                price,
+                targetPrice,
                 priceDecimal);
             if (amountInUsed > amountLeft) {
                 amountAmmIn += amountLeft;
@@ -590,7 +595,7 @@ contract OrderBook is OrderQueue, PriceList {
                     LIMIT_SELL,
                     reserveIn,
                     reserveOut,
-                    price,
+                    targetPrice,
                     priceDecimal);
             if (amountInUsed > amountLeft) {
                 amountAmmIn += amountLeft;
@@ -633,7 +638,7 @@ contract OrderBook is OrderQueue, PriceList {
 
         //需要先将token转移到order book合约(在router中执行), 以免与pair中的token混合
         uint balance = IERC20(quoteToken).balanceOf(address(this));
-        uint amountOffer = balance - quoteBalance;
+        uint amountOffer = balance > quoteBalance ? balance - quoteBalance : 0;
         require(amountOffer >= minAmount, 'UniswapV2 OrderBook: Amount Invalid');
         //更新quote余额
         quoteBalance = balance;
@@ -664,7 +669,7 @@ contract OrderBook is OrderQueue, PriceList {
 
         //需要将token转移到order book合约, 以免与pair中的token混合
         uint balance = IERC20(baseToken).balanceOf(address(this));
-        uint amountOffer = balance - baseBalance;
+        uint amountOffer = balance > baseBalance ? balance - baseBalance : 0;
         require(amountOffer >= minAmount, 'UniswapV2 OrderBook: Amount Invalid');
 
         //先在流动性池将价格拉到挂单价，同时还需要吃掉价格范围内的反方向挂单
@@ -687,15 +692,7 @@ contract OrderBook is OrderQueue, PriceList {
         _removeLimitOrder(o);
 
         address token = o.orderType == 1 ? quoteToken : baseToken;
-        address WETH = IOrderBookFactory(factory).WETH();
-        //退款
-        if (WETH == token) {
-            IWETH(WETH).withdraw(o.amountRemain);
-            TransferHelper.safeTransferETH(o.to, o.amountRemain);
-        }
-        else {
-            _safeTransfer(token, o.to, o.amountRemain);
-        }
+        _singleTransfer(token, o.to, o.amountRemain);
 
         //更新token余额
         uint balance = IERC20(token).balanceOf(address(this));
@@ -706,7 +703,7 @@ contract OrderBook is OrderQueue, PriceList {
     }
 
     //由pair的swap接口调用
-    function takeLimitOrder(
+    function _takeLimitOrder(
         uint direction,
         uint amount,
         uint price)
@@ -759,7 +756,7 @@ contract OrderBook is OrderQueue, PriceList {
     external
     lock
     returns (address[] memory accounts, uint[] memory amounts, uint amountUsed) {
-        (accounts, amounts, amountUsed) = takeLimitOrder(1, amount, price);
+        (accounts, amounts, amountUsed) = _takeLimitOrder(LIMIT_BUY, amount, price);
         //向pair合约转账amountUsed的baseToken
         _safeTransfer(baseToken, pair, amountUsed);
     }
@@ -771,7 +768,7 @@ contract OrderBook is OrderQueue, PriceList {
     public
     lock
     returns (address[] memory accounts, uint[] memory amounts, uint amountUsed){
-        (accounts, amounts, amountUsed) = takeLimitOrder(2, amount, price);
+        (accounts, amounts, amountUsed) = _takeLimitOrder(LIMIT_SELL, amount, price);
         //向pair合约转账amountUsed
         _safeTransfer(quoteToken, pair, amountUsed);
     }

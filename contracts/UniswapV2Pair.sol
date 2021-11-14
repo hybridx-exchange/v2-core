@@ -329,6 +329,7 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
 
     function _takePrice(
         address orderBook,
+        address to,
         address tokenIn,
         uint direction,
         uint amountLeft,
@@ -339,9 +340,11 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         //消耗掉一个价格的挂单并返回实际需要的amountIn数量 -- 将amountOut（包含手续费)由orderbook合约先转入入pair合约，便于flash swap使用，返回需要转账的地址和数量
         address[] memory accounts;
         uint[] memory amounts;
-        (amountInForTake, , accounts, amounts) =
-        IOrderBook(orderBook).getAmountAndTakePrice(direction, amountLeft, price, orderAmount);
-        //会将amountOut转给pair合约
+        uint amountOutWithFee;
+        (amountInForTake, amountOutWithFee, accounts, amounts) =
+        IOrderBook(orderBook).getAmountAndTakePrice(to, direction, amountLeft, price, orderAmount);
+        //从orderBook将amountOut转给pair合约 --- 考虑由orderBook往pair转，这样不用考虑approve，也更安全
+
         //将amountInForTake转移给消费订单对应的账号
         _batchTransfer(tokenIn, accounts, amounts);
     }
@@ -350,46 +353,50 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
     // 输入输出已经考虑了挂单的情况
     function swapOrderBook(
         address orderBook,
+        address to,
         address tokenIn,
         uint reserveIn,
         uint reserveOut,
-        uint amountIn)
+        uint amountLeft)
     internal
     returns (uint amountAmmIn, uint amountAmmOut){
-        //direction fortokenA swap to tokenB
+        //direction for tokenA swap to tokenB
         uint direction = HybridLibrary.getTradeDirection(orderBook, tokenIn);
         uint decimal = HybridLibrary.getPriceDecimal(orderBook);
 
-        uint amountLeft = amountIn;
         (uint price, uint amount) = HybridLibrary.getNextBook(orderBook, ~direction, 0); // 订单方向与交易方向相反
         //只处理挂单，reserveIn/reserveOut只用来计算需要消耗的挂单数量和价格范围
         while (price != 0) {
-            uint amountInUsed;
-            uint amountOutUsed;
-            //先计算pair从当前价格到price[j]消耗amountIn的数量
-            (amountInUsed, amountOutUsed, reserveIn, reserveOut) = HybridLibrary.getAmountForMovePrice(direction,
-                reserveIn, reserveOut, price, decimal);
-            //再计算本次移动价格获得的amountOut
-            amountOutUsed = amountInUsed > amountLeft ? UniswapV2Library.getAmountOut(amountLeft, reserveIn,
-                reserveOut) : amountOutUsed;
-            //amountOut += amountOutUsed;
-            //再计算amm中实际会消耗的amountIn的数量
-            amountAmmIn +=  amountInUsed > amountLeft ? amountLeft : amountInUsed;
-            //再计算amm中实际会消耗的amountOut的数量
-            amountAmmOut += amountOutUsed;
+            //先计算pair从当前价格到price消耗amountIn的数量
+            {
+                uint amountInUsed;
+                uint amountOutUsed;
+                (amountInUsed, amountOutUsed, reserveIn, reserveOut) =
+                HybridLibrary.getAmountForMovePrice(
+                    direction,
+                    reserveIn,
+                    reserveOut,
+                    price,
+                    decimal);
+                if (amountInUsed > amountLeft) {
+                    amountAmmIn += amountLeft;
+                    amountAmmOut += UniswapV2Library.getAmountOut(amountLeft, reserveIn, reserveOut);
+                    amountLeft = 0;
+                }
+                else {
+                    amountAmmIn += amountInUsed;
+                    amountAmmOut += amountOutUsed;
+                    amountLeft = amountLeft - amountInUsed;
+                }
 
-            if (amountLeft > amountInUsed) {
-                amountLeft = amountLeft - amountInUsed;
-            }
-            else { //amountIn消耗完了
-                amountLeft = 0;
-                break;
+                if (amountLeft == 0) {
+                    break;
+                }
             }
 
             {
-                //消耗掉一个价格的挂单并返回实际需要的amountIn数量 -- 将amountOut（包含手续费)由orderbook合约先转入入pair合约，便于flash swap使用，返回需要转账的地址和数量
-                uint amountInForTake = _takePrice(orderBook, tokenIn, ~direction, amountLeft, price, amount);
-                //amountOut += amountOutWithFee;
+                //消耗掉一个价格的挂单并返回实际需要的amountIn数量 -- 将amountOut（包含手续费)由orderbook合约直接转入to，有挂单的情况下flash swap是否还能成立
+                uint amountInForTake = _takePrice(orderBook, to, tokenIn, ~direction, amountLeft, price, amount);
                 if (amountLeft > amountInForTake) {
                     amountLeft = amountLeft - amountInForTake;
                 }
@@ -406,7 +413,6 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
             uint amountOutUsed;
             //再计算本次移动价格获得的amountOut
             amountOutUsed = UniswapV2Library.getAmountOut(amountLeft, reserveIn, reserveOut);
-            //amountOut += amountOutUsed;
             //再计算amm中实际会消耗的amountIn的数量
             amountAmmIn +=  amountLeft;
             //再计算amm中实际会消耗的amountOut的数量
@@ -438,10 +444,10 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
             uint amountAmmOut;
             address orderBook = IOrderBookFactory(orderBookFactory).getOrderBook(_token0, token1);
             if (amount0In != 0) {//挂单相关的直接从orderBook转给to
-                (amountAmmIn, amountAmmOut) = swapOrderBook(orderBook, _token0, _reserve0, _reserve1, amount0In);
+                (amountAmmIn, amountAmmOut) = swapOrderBook(orderBook, to, _token0, _reserve0, _reserve1, amount0In);
             }
             else{
-                (amountAmmIn, amountAmmOut) = swapOrderBook(orderBook, _token1, _reserve1, _reserve0, amount1In);
+                (amountAmmIn, amountAmmOut) = swapOrderBook(orderBook, to, _token1, reserve1, _reserve0, amount1In);
             }
 
             amount0Out = amount0In != 0 ? 0 : amountAmmOut;//此处只有amm相关金额

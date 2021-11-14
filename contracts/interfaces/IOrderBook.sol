@@ -58,6 +58,7 @@ interface IOrderBook {
     returns (uint nextPrice, uint amount);
 
     function getAmountAndTakePrice(
+        address to,
         uint direction,
         uint amountInOffer,
         uint price,
