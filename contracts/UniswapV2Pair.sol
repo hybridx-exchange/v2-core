@@ -446,7 +446,7 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
             if (amount0In != 0) {//挂单相关的直接从orderBook转给to
                 (amountAmmIn, amountAmmOut) = swapOrderBook(orderBook, to, _token0, _reserve0, _reserve1, amount0In);
             }
-            else{
+            else {
                 (amountAmmIn, amountAmmOut) = swapOrderBook(orderBook, to, _token1, reserve1, _reserve0, amount1In);
             }
 

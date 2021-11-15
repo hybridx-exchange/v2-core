@@ -24,12 +24,11 @@ contract OrderBook is OrderQueue, PriceList {
     }
 
     bytes4 private constant SELECTOR_TRANSFER = bytes4(keccak256(bytes('transfer(address,uint256)')));
-    bytes4 private constant SELECTOR_APPROVE = bytes4(keccak256(bytes('approve(address,uint256)')));
-    uint private constant LIMIT_BUY = 1;
-    uint private constant LIMIT_SELL = 2;
 
     //名称
     string public constant name = 'Uniswap V2 OrderBook';
+    uint internal constant LIMIT_BUY = 1;
+    uint internal constant LIMIT_SELL = 2;
 
     //order book factory
     address public factory;
@@ -38,7 +37,7 @@ contract OrderBook is OrderQueue, PriceList {
     address public pair;
 
     //价格间隔参数-保证价格间隔的设置在一个合理的范围内
-    uint public priceStep; //priceStep 和 minAmount和修改可以考虑在一定时间内由合约创建者负责修改，一定时间后将维护权自动转交给投票合约及管理员
+    uint public priceStep;
     //最小数量
     uint public minAmount;
     //价格小数点位数
@@ -109,28 +108,12 @@ contract OrderBook is OrderQueue, PriceList {
         priceStep = _priceStep;
         priceDecimal = IERC20(_quoteToken).decimals();
         minAmount = _minAmount;
-        //允许pair合约使用base/quote余额，swap时需要
-        _safeApprove(baseToken, pair, uint(-1));
-        _safeApprove(quoteToken, pair, uint(-1));
-    }
-
-    // 允许pair合约使用base/quote余额，swap时需要
-    function approveAll()
-    external {
-        _safeApprove(baseToken, pair, uint(-1));
-        _safeApprove(quoteToken, pair, uint(-1));
     }
 
     function _safeTransfer(address token, address to, uint value)
     private {
         (bool success, bytes memory data) = token.call(abi.encodeWithSelector(SELECTOR_TRANSFER, to, value));
         require(success && (data.length == 0 || abi.decode(data, (bool))), 'UniswapV2 OrderBook: TRANSFER_FAILED');
-    }
-
-    function _safeApprove(address token, address to, uint value)
-    private {
-        (bool success, bytes memory data) = token.call(abi.encodeWithSelector(SELECTOR_APPROVE, to, value));
-        require(success && (data.length == 0 || abi.decode(data, (bool))), 'UniswapV2 OrderBook: APPROVE_FAILED');
     }
 
     uint private unlocked = 1;
@@ -151,7 +134,7 @@ contract OrderBook is OrderQueue, PriceList {
     }
 
     function getReserves()
-    public
+    private
     view
     returns (uint112 reserveBase, uint112 reserveQuote, uint32 blockTimestampLast) {
         (uint112 _reserve0, uint112 _reserve1, uint32 _blockTimestampLast) = IUniswapV2Pair(pair).getReserves();
@@ -775,13 +758,15 @@ contract OrderBook is OrderQueue, PriceList {
 
     //更新价格间隔
     function priceStepUpdate(uint newPriceStep) external lock {
-        require(priceLength(LIMIT_BUY) == 0 && priceLength(LIMIT_SELL) == 0, 'UniswapV2 OrderBook: Order Exist');
+        require(priceLength(LIMIT_BUY) == 0 && priceLength(LIMIT_SELL) == 0,
+            'UniswapV2 OrderBook: Order Exist');
         priceStep = newPriceStep;
     }
 
     //更新最小数量
     function minAmountUpdate(uint newMinAmount) external lock {
-        require(priceLength(LIMIT_BUY) == 0 && priceLength(LIMIT_SELL) == 0, 'UniswapV2 OrderBook: Order Exist');
+        require(priceLength(LIMIT_BUY) == 0 && priceLength(LIMIT_SELL) == 0,
+            'UniswapV2 OrderBook: Order Exist');
         minAmount = newMinAmount;
     }
 }
