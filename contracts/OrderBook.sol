@@ -143,6 +143,17 @@ contract OrderBook is OrderQueue, PriceList {
         blockTimestampLast = _blockTimestampLast;
     }
 
+    function getPrice()
+    internal
+    view
+    returns (uint price){
+        (uint112 reserveBase, uint112 reserveQuote,) = getReserves();
+        if (reserveBase != 0){
+            uint d = reserveQuote.mul(10 ** priceDecimal);
+            price = d / reserveBase;
+        }
+    }
+
     function tradeDirection(address tokenIn)
     external
     view

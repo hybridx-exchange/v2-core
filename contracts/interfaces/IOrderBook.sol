@@ -73,6 +73,11 @@ interface IOrderBook {
     view
     returns (uint);
 
+    function getPrice()
+    external
+    view
+    returns (uint price);
+
     //价格小数点位数
     function priceDecimal() external view returns (uint);
 
