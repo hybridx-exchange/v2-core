@@ -84,7 +84,7 @@ describe('UniswapV2Pair', () => {
       await addLiquidity(token0Amount, token1Amount)
       await token0.transfer(pair.address, swapAmount)
       await expect(pair.swap(0, expectedOutputAmount.add(1), wallet.address, '0x', overrides)).to.be.revertedWith(
-        'UniswapV2: K'
+        'UniswapV2: K2'
       )
       await pair.swap(0, expectedOutputAmount, wallet.address, '0x', overrides)
     })

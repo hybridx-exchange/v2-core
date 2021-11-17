@@ -304,7 +304,8 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         { // scope for reserve{0,1}Adjusted, avoids stack too deep errors
             uint balance0Adjusted = balance0.mul(1000).sub(amount0In.mul(3));
             uint balance1Adjusted = balance1.mul(1000).sub(amount1In.mul(3));
-            require(balance0Adjusted.mul(balance1Adjusted) >= uint(_reserve0).mul(_reserve1).mul(1000**2), 'UniswapV2: K');
+            require(balance0Adjusted.mul(balance1Adjusted) >= uint(_reserve0).mul(_reserve1).mul(1000**2),
+                'UniswapV2: K2');
         }
 
         _update(balance0, balance1, _reserve0, _reserve1);
@@ -437,21 +438,17 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
             amount0In = balance0 > _reserve0 - amount0Out ? balance0 - (_reserve0 - amount0Out) : 0; // 此处进入的资金会用于amm + 订单两部分
             amount1In = balance1 > _reserve1 - amount1Out ? balance1 - (_reserve1 - amount1Out) : 0;
         }
+
         require(amount0In > 0 || amount1In > 0, 'UniswapV2: INSUFFICIENT_INPUT_AMOUNT');
         address orderBookFactory = IUniswapV2Factory(factory).getOrderBookFactory();
-        if (orderBookFactory != address(0)){
-            uint amountAmmIn;
-            uint amountAmmOut;
+        if (orderBookFactory != address(0)) {
             address orderBook = IOrderBookFactory(orderBookFactory).getOrderBook(_token0, token1);
             if (amount0In != 0) {//挂单相关的直接从orderBook转给to
-                (amountAmmIn, amountAmmOut) = swapOrderBook(orderBook, to, _token0, _reserve0, _reserve1, amount0In);
+                (amount0In, amount1Out) = swapOrderBook(orderBook, to, _token0, _reserve0, _reserve1, amount0In);
             }
             else {
-                (amountAmmIn, amountAmmOut) = swapOrderBook(orderBook, to, _token1, reserve1, _reserve0, amount1In);
+                (amount1In, amount0Out) = swapOrderBook(orderBook, to, _token1, reserve1, _reserve0, amount1In);
             }
-
-            amount0Out = amount0In != 0 ? 0 : amountAmmOut;//此处只有amm相关金额
-            amount1Out = amount1In != 0 ? amountAmmOut : 0;
         }
 
         swapAmm(amount0In, amount1In, amount0Out, amount1Out, to, data);
