@@ -11,6 +11,7 @@ import "./PriceList.sol";
 
 contract OrderBook is OrderQueue, PriceList {
     using SafeMath for uint;
+    using SafeMath for uint112;
 
     struct Order {
         address owner;

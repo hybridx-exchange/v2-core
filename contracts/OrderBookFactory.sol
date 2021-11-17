@@ -45,4 +45,8 @@ contract OrderBookFactory is IOrderBookFactory {
         allOrderBooks.push(orderBook);
         emit OrderBookCreated(pair, orderBook, priceStep, minAmount);
     }
+
+    function getCodeHash() external pure returns (bytes32) {
+        return keccak256(type(OrderBook).creationCode);
+    }
 }

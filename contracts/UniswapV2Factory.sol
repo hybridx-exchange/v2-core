@@ -37,6 +37,10 @@ contract UniswapV2Factory is IUniswapV2Factory {
         emit PairCreated(token0, token1, pair, allPairs.length);
     }
 
+    function getCodeHash() external pure returns (bytes32) {
+        return keccak256(type(UniswapV2Pair).creationCode);
+    }
+
     function setFeeTo(address _feeTo) external {
         require(msg.sender == admin, 'UniswapV2: FORBIDDEN');
         feeTo = _feeTo;
