@@ -68,7 +68,7 @@ describe('UniswapV2Factory', () => {
   it('createPair:gas', async () => {
     const tx = await factory.createPair(...TEST_ADDRESSES)
     const receipt = await tx.wait()
-    expect(receipt.gasUsed).to.eq(2512920)
+    expect(receipt.gasUsed).to.eq(3674420)
   })
 
   it('setFeeTo', async () => {
@@ -78,9 +78,9 @@ describe('UniswapV2Factory', () => {
   })
 
   it('admin', async () => {
-    await expect(factory.connect(other).admin(other.address)).to.be.revertedWith('UniswapV2: FORBIDDEN')
-    await factory.admin(other.address)
+    await expect(factory.connect(other).setAdmin(other.address)).to.be.revertedWith('UniswapV2: FORBIDDEN')
+    await factory.setAdmin(other.address)
     expect(await factory.admin()).to.eq(other.address)
-    await expect(factory.admin(wallet.address)).to.be.revertedWith('UniswapV2: FORBIDDEN')
+    await expect(factory.setAdmin(wallet.address)).to.be.revertedWith('UniswapV2: FORBIDDEN')
   })
 })
