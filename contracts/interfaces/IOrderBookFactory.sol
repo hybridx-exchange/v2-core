@@ -7,4 +7,5 @@ interface IOrderBookFactory {
     function getOrderBook(address tokenA, address tokenB) external view returns (address orderBook);
     function allOrderBooks(uint) external view returns (address orderBook);
     function createOrderBook(address baseToken, address quoteToken, uint priceStep, uint minAmount) external;
+    function getCodeHash() external pure returns (bytes32);
 }
