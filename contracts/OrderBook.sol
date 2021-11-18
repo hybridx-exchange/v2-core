@@ -99,7 +99,7 @@ contract OrderBook is OrderQueue, PriceList {
         require(_minAmount >= 1, 'UniswapV2 OrderBook: Min Amount Invalid');
         (address token0, address token1) = (IUniswapV2Pair(_pair).token0(), IUniswapV2Pair(_pair).token1());
         require(
-            (token0 == _baseToken && token1 == _quoteToken) &&
+            (token0 == _baseToken && token1 == _quoteToken) ||
             (token1 == _baseToken && token0 == _quoteToken),
             'UniswapV2 OrderBook: Token Pair Invalid');
 
