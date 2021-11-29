@@ -366,12 +366,12 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
 
             require(amount0In > 0 || amount1In > 0, 'UniswapV2: INSUFFICIENT_INPUT_AMOUNT');
             if (amount0In != 0) {
-                amount1OutRet = doTakeOrder(orderBookFactory, orderBook, to, token0, amount0In, balance1, _reserve0,
-                    _reserve1);
+                amount1OutRet = doTakeOrder(orderBookFactory, orderBook, to, token0, amount0In,
+                    balance1, _reserve0, _reserve1);
             }
             else {
-                amount0OutRet = doTakeOrder(orderBookFactory, orderBook, to, token1, amount1In, balance0, _reserve1,
-                    _reserve0);
+                amount0OutRet = doTakeOrder(orderBookFactory, orderBook, to, token1, amount1In,
+                    balance0, _reserve1, _reserve0);
             }
         }
     }
