@@ -255,8 +255,9 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
     function swapOriginal(uint amount0Out, uint amount1Out, address to, bytes calldata data) external lock {
         {
             address orderBookFactory = IUniswapV2Factory(factory).getOrderBookFactory();
-            require(orderBookFactory != address(0));
-            require(msg.sender == IOrderBookFactory(orderBookFactory).getOrderBook(token0, token1));
+            require(orderBookFactory != address(0), "UniswapV2: INVALID_ORDER_BOOK_FACTORY");
+            require(msg.sender == IOrderBookFactory(orderBookFactory).getOrderBook(token0, token1),
+                "UniswapV2: INVALID_sender");
         }
 
         require(amount0Out > 0 || amount1Out > 0, 'UniswapV2: INSUFFICIENT_OUTPUT_AMOUNT');
@@ -395,7 +396,7 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
                 movePrice(_amount0Out, _amount1Out, to, data);
             }
         }
-        else{
+        else {
             movePrice(amount0Out, amount1Out, to, data);
         }
     }

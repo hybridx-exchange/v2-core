@@ -68,7 +68,7 @@ describe('UniswapV2Pair', () => {
     await pair.mint(wallet.address, overrides)
   }
   const swapTestCases: BigNumber[][] = [
-    [1, 5, 10, '1662497915624478906'],
+    [1, 5, 10, '1662497915624478906'],//p1=1.3895836807
     [1, 10, 5, '453305446940074565'],
 
     [2, 5, 10, '2851015155847869602'],

@@ -11,6 +11,7 @@ contract UniswapV2Factory is IUniswapV2Factory {
     address[] public allPairs;
 
     event PairCreated(address indexed token0, address indexed token1, address pair, uint);
+    event OrderBookFactoryUpdate(address indexed admin, address newOrderBookFactory);
 
     constructor(address _admin) public {
         admin = _admin;
@@ -54,5 +55,7 @@ contract UniswapV2Factory is IUniswapV2Factory {
     function setOrderBookFactory(address _orderBookFactory) external {
         require(msg.sender == admin, 'UniswapV2: FORBIDDEN');
         getOrderBookFactory = _orderBookFactory;
+
+        emit OrderBookFactoryUpdate(msg.sender, _orderBookFactory);
     }
 }
