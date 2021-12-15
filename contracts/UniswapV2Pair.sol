@@ -411,6 +411,14 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
 
     // force reserves to match balances
     function sync() external lock {
+        address orderBookFactory = IUniswapV2Factory(factory).getOrderBookFactory();
+
+        if (orderBookFactory != address(0)){
+            address orderBook = IOrderBookFactory(orderBookFactory).getOrderBook(token0, token1);
+            if (orderBook != address(0)){
+                require(msg.sender == orderBook, "UniswapV2: INVALID_SENDER");
+            }
+        }
         _update(IERC20(token0).balanceOf(address(this)), IERC20(token1).balanceOf(address(this)), reserve0, reserve1);
     }
 
