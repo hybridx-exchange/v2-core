@@ -7,12 +7,12 @@ import './libraries/TransferHelper.sol';
 import './libraries/UniswapV2Library.sol';
 import './interfaces/IERC20.sol';
 import './interfaces/IWETH.sol';
-import './interfaces/IOrderBook.sol';
-import './interfaces/IOrderBookFactory.sol';
 import './interfaces/IUniswapV2Callee.sol';
 import "./interfaces/IUniswapV2ERC20.sol";
 import './interfaces/IUniswapV2Pair.sol';
 import './interfaces/IUniswapV2Factory.sol';
+import '@hybridx-exchange/orderbook-core/contracts/interfaces/IOrderBook.sol';
+import '@hybridx-exchange/orderbook-core/contracts/interfaces/IOrderBookFactory.sol';
 
 contract UniswapV2ERC20 is IUniswapV2ERC20 {
     using SafeMath for uint;
@@ -384,7 +384,6 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
     }
 
     // this low-level function should be called from a contract which performs important safety checks
-    // 输入输出已经考虑了挂单的情况
     function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external lock {
         require(amount0Out > 0 || amount1Out > 0, 'UniswapV2: INSUFFICIENT_OUTPUT_AMOUNT');
 
