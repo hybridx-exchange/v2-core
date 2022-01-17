@@ -7,12 +7,12 @@ import './libraries/TransferHelper.sol';
 import './libraries/UniswapV2Library.sol';
 import './interfaces/IERC20.sol';
 import './interfaces/IWETH.sol';
+import './interfaces/IOrderBook.sol';
+import './interfaces/IOrderBookFactory.sol';
 import './interfaces/IUniswapV2Callee.sol';
 import "./interfaces/IUniswapV2ERC20.sol";
 import './interfaces/IUniswapV2Pair.sol';
 import './interfaces/IUniswapV2Factory.sol';
-import '@hybridx-exchange/orderbook-core/contracts/interfaces/IOrderBook.sol';
-import '@hybridx-exchange/orderbook-core/contracts/interfaces/IOrderBookFactory.sol';
 
 contract UniswapV2ERC20 is IUniswapV2ERC20 {
     using SafeMath for uint;
