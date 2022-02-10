@@ -344,18 +344,12 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         address orderBook,
         address to,
         address tokenIn,
-        uint amountIn,
-        uint balanceOut,
-        uint112 _reserve0,
-        uint112 _reserve1)
-    internal returns(uint amountOut) {
+        uint amountIn)
+    internal returns(uint amountOutLeft) {
         address[] memory accounts;
         uint[] memory amounts;
-        (amountOut, accounts, amounts) = IOrderBook(orderBook).takeOrderWhenMovePrice(
+        (amountOutLeft, accounts, amounts) = IOrderBook(orderBook).takeOrderWhenMovePrice(
             tokenIn, amountIn, to);
-        uint amountRecv = IERC20(tokenIn).balanceOf(address(this)) - balanceOut;
-        require(UniswapV2Library.getAmountOut(amountIn, _reserve0, _reserve1) <=
-            amountOut + amountRecv, 'UniswapV2: UNACCEPTABLE_OUTPUT_AMOUNT');
         payOrder(orderBookFactory, tokenIn, accounts, amounts);
     }
 
@@ -373,12 +367,10 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
 
             require(amount0In > 0 || amount1In > 0, 'UniswapV2: INSUFFICIENT_INPUT_AMOUNT');
             if (amount0In != 0) {
-                amount1OutRet = doTakeOrder(orderBookFactory, orderBook, to, token0, amount0In,
-                    balance1, _reserve0, _reserve1);
+                amount1OutRet = doTakeOrder(orderBookFactory, orderBook, to, token0, amount0In);
             }
             else {
-                amount0OutRet = doTakeOrder(orderBookFactory, orderBook, to, token1, amount1In,
-                    balance0, _reserve1, _reserve0);
+                amount0OutRet = doTakeOrder(orderBookFactory, orderBook, to, token1, amount1In);
             }
         }
     }
