@@ -1,7 +1,7 @@
 {
   "name": "@hybridx-exchange/v2-core",
   "description": "🎛 Core contracts for the UniswapV2 protocol",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "homepage": "https://hybridx.exchange",
   "repository": {
     "type": "git",

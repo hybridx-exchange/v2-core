@@ -368,9 +368,11 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
             require(amount0In > 0 || amount1In > 0, 'UniswapV2: INSUFFICIENT_INPUT_AMOUNT');
             if (amount0In != 0) {
                 amount1OutRet = doTakeOrder(orderBookFactory, orderBook, to, token0, amount0In);
+                require(amount1OutRet <= amount1Out, 'UniswapV2: UNACCEPTABLE_OUTPUT1_AMOUNT');
             }
             else {
                 amount0OutRet = doTakeOrder(orderBookFactory, orderBook, to, token1, amount1In);
+                require(amount0OutRet <= amount0Out, 'UniswapV2: UNACCEPTABLE_OUTPUT0_AMOUNT');
             }
         }
     }
@@ -382,7 +384,6 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         address orderBookFactory = IUniswapV2Factory(factory).getOrderBookFactory();
         if (orderBookFactory != address(0)) {
             (uint _amount0Out, uint _amount1Out) = takeOrder(amount0Out, amount1Out, orderBookFactory, to);
-            require(_amount0Out <= amount0Out && _amount1Out <= amount1Out, 'UniswapV2: UNACCEPTABLE_OUTPUT_AMOUNT');
             if (_amount0Out > 0 || _amount1Out > 0) {
                 movePrice(_amount0Out, _amount1Out, to, data);
             }
