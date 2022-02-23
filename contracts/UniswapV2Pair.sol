@@ -321,6 +321,9 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         emit Swap(msg.sender, amount0In, amount1In, amount0Out, amount1Out, to);
     }
 
+    function() external payable {
+    }
+
     function payOrder(
         address orderBookFactory,
         address token,
@@ -348,6 +351,7 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
     internal returns(uint amountOutLeft) {
         address[] memory accounts;
         uint[] memory amounts;
+        //这个地方的流程可以改为先发送tokenIn到orderbook，orderbook处理完后再将多余的返回，然后check一下与正常swap的数量
         (amountOutLeft, accounts, amounts) = IOrderBook(orderBook).takeOrderWhenMovePrice(
             tokenIn, amountIn, to);
         payOrder(orderBookFactory, tokenIn, accounts, amounts);
