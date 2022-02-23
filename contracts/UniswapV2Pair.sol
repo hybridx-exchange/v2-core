@@ -321,7 +321,11 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         emit Swap(msg.sender, amount0In, amount1In, amount0Out, amount1Out, to);
     }
 
-    function() external payable {
+    function() external payable {//待修改
+        address orderBookFactory = IUniswapV2Factory(factory).getOrderBookFactory();
+        assert(orderBookFactory != address (0));
+        address WETH = IOrderBookFactory(orderBookFactory).WETH();
+        assert(WETH == msg.sender);
     }
 
     function payOrder(
