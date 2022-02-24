@@ -68,7 +68,7 @@ describe('UniswapV2Pair', () => {
     await pair.mint(wallet.address, overrides)
   }
   const swapTestCases: BigNumber[][] = [
-    [1, 5, 10, '1662497915624478906'],
+    [1, 5, 10, '1662497915624478906'],//p1=1.3895836807
     [1, 10, 5, '453305446940074565'],
 
     [2, 5, 10, '2851015155847869602'],
@@ -84,7 +84,7 @@ describe('UniswapV2Pair', () => {
       await addLiquidity(token0Amount, token1Amount)
       await token0.transfer(pair.address, swapAmount)
       await expect(pair.swap(0, expectedOutputAmount.add(1), wallet.address, '0x', overrides)).to.be.revertedWith(
-        'UniswapV2: K'
+        'UniswapV2: K2'
       )
       await pair.swap(0, expectedOutputAmount, wallet.address, '0x', overrides)
     })
@@ -141,7 +141,7 @@ describe('UniswapV2Pair', () => {
     await addLiquidity(token0Amount, token1Amount)
 
     const swapAmount = expandTo18Decimals(1)
-    const expectedOutputAmount = bigNumberify('453305446940074565')
+    const expectedOutputAmount = bigNumberify('453305446940074565')//2.41934
     await token1.transfer(pair.address, swapAmount)
     await expect(pair.swap(expectedOutputAmount, 0, wallet.address, '0x', overrides))
       .to.emit(token0, 'Transfer')
@@ -152,6 +152,8 @@ describe('UniswapV2Pair', () => {
       .withArgs(wallet.address, 0, swapAmount, expectedOutputAmount, 0, wallet.address)
 
     const reserves = await pair.getReserves()
+    //console.log(reserves[0].toString())
+    //console.log(reserves[1].toString())
     expect(reserves[0]).to.eq(token0Amount.sub(expectedOutputAmount))
     expect(reserves[1]).to.eq(token1Amount.add(swapAmount))
     expect(await token0.balanceOf(pair.address)).to.eq(token0Amount.sub(expectedOutputAmount))
@@ -177,7 +179,7 @@ describe('UniswapV2Pair', () => {
     await mineBlock(provider, (await provider.getBlock('latest')).timestamp + 1)
     const tx = await pair.swap(expectedOutputAmount, 0, wallet.address, '0x', overrides)
     const receipt = await tx.wait()
-    expect(receipt.gasUsed).to.eq(73462)
+    expect(receipt.gasUsed).to.eq(77199)
   })
 
   it('burn', async () => {

@@ -1,19 +1,20 @@
 pragma solidity =0.5.16;
 
-import './interfaces/IUniswapV2Factory.sol';
 import './UniswapV2Pair.sol';
 
 contract UniswapV2Factory is IUniswapV2Factory {
     address public feeTo;
-    address public feeToSetter;
+    address public admin;
+    address public getOrderBookFactory;
 
     mapping(address => mapping(address => address)) public getPair;
     address[] public allPairs;
 
     event PairCreated(address indexed token0, address indexed token1, address pair, uint);
+    event OrderBookFactoryUpdate(address indexed admin, address newOrderBookFactory);
 
-    constructor(address _feeToSetter) public {
-        feeToSetter = _feeToSetter;
+    constructor(address _admin) public {
+        admin = _admin;
     }
 
     function allPairsLength() external view returns (uint) {
@@ -37,13 +38,24 @@ contract UniswapV2Factory is IUniswapV2Factory {
         emit PairCreated(token0, token1, pair, allPairs.length);
     }
 
+    function getCodeHash() external pure returns (bytes32) {
+        return keccak256(type(UniswapV2Pair).creationCode);
+    }
+
     function setFeeTo(address _feeTo) external {
-        require(msg.sender == feeToSetter, 'UniswapV2: FORBIDDEN');
+        require(msg.sender == admin, 'UniswapV2: FORBIDDEN');
         feeTo = _feeTo;
     }
 
-    function setFeeToSetter(address _feeToSetter) external {
-        require(msg.sender == feeToSetter, 'UniswapV2: FORBIDDEN');
-        feeToSetter = _feeToSetter;
+    function setAdmin(address _admin) external {
+        require(msg.sender == admin, 'UniswapV2: FORBIDDEN');
+        admin = _admin;
+    }
+
+    function setOrderBookFactory(address _orderBookFactory) external {
+        require(msg.sender == admin, 'UniswapV2: FORBIDDEN');
+        getOrderBookFactory = _orderBookFactory;
+
+        emit OrderBookFactoryUpdate(msg.sender, _orderBookFactory);
     }
 }

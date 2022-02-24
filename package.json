@@ -1,13 +1,14 @@
 {
-  "name": "@uniswap/v2-core",
+  "name": "@hybridx-exchange/v2-core",
   "description": "🎛 Core contracts for the UniswapV2 protocol",
-  "version": "1.0.1",
-  "homepage": "https://uniswap.org",
+  "version": "0.1.10",
+  "homepage": "https://hybridx.exchange",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Uniswap/uniswap-v2-core"
+    "url": "https://github.com/hybridx-exchange/v2-core"
   },
   "keywords": [
+    "hybridx",
     "uniswap",
     "ethereum",
     "v2",
